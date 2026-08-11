@@ -490,6 +490,48 @@ export class AppController {
     this.dispatch({ type: 'PATCH', patch: { phase: 'done' } })
   }
 
+  /** Non-destructive Cloudinary/canvas filter on one layer (null clears). */
+  setLayerFilter(layerId: string, filterKey: string | null) {
+    const state = this.getState()
+    const version = currentVersion(state)
+    if (!version) return
+    const layer = version.layers.find((l) => l.id === layerId)
+    if (!layer) return
+    this.dispatch({ type: 'PATCH_LAYER', versionId: version.id, layerId, patch: { filter: filterKey } })
+    if (filterKey) {
+      this.dispatch({
+        type: 'ADD_EVENT',
+        event: {
+          id: uid(),
+          agent: 'Cloudinary',
+          action: `Filter "${filterKey}" applied to ${layer.name} via URL transformation`,
+          status: 'complete',
+          timestamp: Date.now(),
+        },
+      })
+    }
+  }
+
+  /** Apply/clear a filter across every layer of the current version. */
+  applyFilterToAll(filterKey: string | null) {
+    const state = this.getState()
+    const version = currentVersion(state)
+    if (!version) return
+    for (const layer of version.layers) {
+      this.dispatch({ type: 'PATCH_LAYER', versionId: version.id, layerId: layer.id, patch: { filter: filterKey } })
+    }
+    this.dispatch({
+      type: 'ADD_EVENT',
+      event: {
+        id: uid(),
+        agent: 'Cloudinary',
+        action: filterKey ? `Filter "${filterKey}" applied to all layers` : 'Filters cleared',
+        status: 'complete',
+        timestamp: Date.now(),
+      },
+    })
+  }
+
   toggleLayerVisibility(layerId: string) {
     const state = this.getState()
     const version = currentVersion(state)
@@ -592,7 +634,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Recomposite whenever the current version's layer signature changes.
   const version = currentVersion(state)
   const signature = version
-    ? `${version.id}|${version.layers.map((l) => `${l.id}:${l.status}:${l.visible}:${l.opacity}:${l.assetUrl ? 1 : 0}`).join('|')}`
+    ? `${version.id}|${version.layers.map((l) => `${l.id}:${l.status}:${l.visible}:${l.opacity}:${l.filter ?? ''}:${l.assetUrl ? 1 : 0}`).join('|')}`
     : 'none'
   useEffect(() => {
     controller.recompose()

@@ -26,6 +26,8 @@ export interface Layer {
   cloudinaryPublicId: string | null
   visible: boolean
   opacity: number
+  /** Non-destructive filter preset key (see lib/cloudinary/filters.ts). */
+  filter?: string | null
   status: LayerStatus
   createdAt: number
   /** Seed used for generation — lets us regenerate variations deterministically. */

@@ -1,5 +1,6 @@
 import { currentVersion, useStore } from '../store'
 import type { Layer } from '../types'
+import { FILTER_PRESETS } from '../lib/cloudinary/filters'
 
 const STATUS_LABEL: Record<Layer['status'], string> = {
   queued: 'Queued',
@@ -38,6 +39,7 @@ export function LayerPanel() {
             onRegenerate={() => void controller.regenerateLayer(layer.id)}
             onRetry={() => void controller.retryLayer(layer.id)}
             onDrop={() => controller.continueWithoutLayer(layer.id)}
+            onFilter={(key) => controller.setLayerFilter(layer.id, key)}
           />
         ))}
       </div>
@@ -54,6 +56,7 @@ function LayerItem({
   onRegenerate,
   onRetry,
   onDrop,
+  onFilter,
 }: {
   layer: Layer
   selected: boolean
@@ -63,6 +66,7 @@ function LayerItem({
   onRegenerate: () => void
   onRetry: () => void
   onDrop: () => void
+  onFilter: (key: string | null) => void
 }) {
   const working = layer.status !== 'complete' && layer.status !== 'failed'
   return (
@@ -128,11 +132,43 @@ function LayerItem({
         )}
       </div>
       {selected && layer.status === 'complete' && (
-        <p className="mt-1.5 text-[10px] text-zinc-600">
-          Generated {new Date(layer.createdAt).toLocaleTimeString()} · chat now edits only this layer
-        </p>
+        <>
+          <div className="mt-2 border-t border-white/6 pt-2">
+            <div className="mb-1 text-[10px] font-semibold tracking-wide text-zinc-500">FILTER</div>
+            <div className="flex flex-wrap gap-1">
+              <FilterChip active={!layer.filter} label="None" onClick={() => onFilter(null)} />
+              {FILTER_PRESETS.map((f) => (
+                <FilterChip
+                  key={f.key}
+                  active={layer.filter === f.key}
+                  label={f.label}
+                  onClick={() => onFilter(f.key)}
+                />
+              ))}
+            </div>
+          </div>
+          <p className="mt-1.5 text-[10px] text-zinc-600">
+            Generated {new Date(layer.createdAt).toLocaleTimeString()} · chat now edits only this layer
+          </p>
+        </>
       )}
     </div>
+  )
+}
+
+function FilterChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+        active
+          ? 'bg-accent-600 text-white'
+          : 'border border-white/10 text-zinc-400 hover:bg-ink-700 hover:text-zinc-200'
+      }`}
+    >
+      {label}
+    </button>
   )
 }
 

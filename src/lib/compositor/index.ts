@@ -1,5 +1,6 @@
 import type { AspectRatio, Layer, LayerRole } from '../../types'
 import { RATIO_SIZES } from '../generation/pollinations'
+import { getFilter, transformedUrl } from '../cloudinary/filters'
 
 /**
  * Real client-side layer compositing:
@@ -138,12 +139,30 @@ export async function compositeLayers(
 
   for (const layer of ordered) {
     try {
-      const img = await loadImage(layer.assetUrl!)
+      // Filters: Cloudinary assets get a real URL transformation; everything
+      // else gets the equivalent canvas filter. Both are non-destructive.
+      const preset = getFilter(layer.filter)
+      const cloudinaryFiltered = preset ? transformedUrl(layer.assetUrl!, preset) : null
+      let sourceUrl = layer.assetUrl!
+      let cssFilter = 'none'
+      if (preset && cloudinaryFiltered) {
+        try {
+          await loadImage(cloudinaryFiltered)
+          sourceUrl = cloudinaryFiltered
+        } catch {
+          cssFilter = preset.css // transformation URL failed — fall back to canvas
+        }
+      } else if (preset) {
+        cssFilter = preset.css
+      }
+
+      const img = await loadImage(sourceUrl)
       const blend = LAYER_BLEND[layer.role]
       ctx.globalCompositeOperation = blend.mode
       ctx.globalAlpha = blend.opacity * layer.opacity
+      ctx.filter = cssFilter
       if (blend.chroma) {
-        const keyed = chromaKey(img, layer.assetUrl!)
+        const keyed = chromaKey(img, sourceUrl)
         // If the model ignored the green screen (nearly everything opaque),
         // fall back to lighten blending so it doesn't blot out the backdrop.
         if (keyed.opaqueRatio > 0.95) {
@@ -156,12 +175,14 @@ export async function compositeLayers(
       } else {
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       }
+      ctx.filter = 'none'
     } catch {
       // A layer that fails to load is skipped rather than sinking the composition.
     }
   }
   ctx.globalCompositeOperation = 'source-over'
   ctx.globalAlpha = 1
+  ctx.filter = 'none'
 
   const format = opts.format ?? 'jpeg'
   const dataUrl = canvas.toDataURL(`image/${format}`, opts.quality ?? 0.92)

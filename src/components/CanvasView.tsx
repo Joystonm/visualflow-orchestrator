@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import { currentVersion, useStore, versionNumber } from '../store'
+import { FILTER_PRESETS } from '../lib/cloudinary/filters'
 
 export function CanvasView() {
-  const { state } = useStore()
+  const { state, controller } = useStore()
   const version = currentVersion(state)
   const containerRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
@@ -21,6 +22,33 @@ export function CanvasView() {
           CANVAS{version && state.project ? ` — ${versionNumber(state.project, version.id)}` : ''}
         </span>
         <div className="flex items-center gap-1">
+          {version && state.compositeUrl && (
+            <>
+              <select
+                value={
+                  // Show a global value only when every layer agrees.
+                  version.layers.every((l) => (l.filter ?? '') === (version.layers[0]?.filter ?? ''))
+                    ? (version.layers[0]?.filter ?? '')
+                    : 'mixed'
+                }
+                onChange={(e) => controller.applyFilterToAll(e.target.value === '' ? null : e.target.value)}
+                aria-label="Filter for all layers"
+                title="Cloudinary filter (all layers)"
+                className="rounded border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px] text-zinc-300 focus:outline-none"
+              >
+                <option value="">No filter</option>
+                {FILTER_PRESETS.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+                <option value="mixed" disabled hidden>
+                  Mixed
+                </option>
+              </select>
+              <div className="mx-1 h-4 w-px bg-white/10" />
+            </>
+          )}
           <ToolbarButton label="Zoom out" onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))}>−</ToolbarButton>
           <button
             onClick={() => setZoom(1)}
