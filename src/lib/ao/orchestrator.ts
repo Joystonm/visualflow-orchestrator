@@ -102,13 +102,14 @@ export class LocalAOAdapter implements AOAdapter {
           bus.onEvent({ agent, action: 'Generation started', status: 'generating' })
 
           const prompt = buildLayerPrompt(job.layerType, job.description, job.sceneContext)
-          const generated = await generateLayerImage(prompt, job.ratio, job.seed)
+          const generated = await generateLayerImage(prompt, job.ratio, job.seed, job.layerType)
           let assetUrl = generated.assetUrl
           let publicId = generated.cloudinaryPublicId
 
           if (generated.provider === 'cloudinary') {
             // Generated straight into the Cloudinary media library — no upload step.
-            bus.onEvent({ agent: 'Cloudinary', action: `Image generated & stored (${job.layerType})`, status: 'complete' })
+            const credits = generated.quota ? ` — ${generated.quota.remaining}/${generated.quota.limit} credits left` : ''
+            bus.onEvent({ agent: 'Cloudinary', action: `Image generated & stored (${job.layerType})${credits}`, status: 'complete' })
           } else if (cloudinaryEnabled()) {
             bus.onAgentStatus(agent, job.layerType, 'uploading', 'Uploading to Cloudinary...')
             bus.onLayerStatus(job.layerId, 'uploading')

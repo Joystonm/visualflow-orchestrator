@@ -47,20 +47,60 @@ function json(res: ServerResponse, status: number, body: unknown) {
 }
 
 /**
+ * Download the freshly generated image. Temp URLs are short-lived and can lag
+ * behind the generation response by a few seconds — retry briefly, and send
+ * account auth in case the storage endpoint requires it.
+ */
+async function downloadAsset(
+  cfg: CloudinaryGenConfig,
+  tempUrl: string,
+): Promise<{ contentType: string; base64: string } | null> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000))
+    try {
+      const imgRes = await fetch(tempUrl, {
+        headers: {
+          Authorization: 'Basic ' + Buffer.from(`${cfg.apiKey}:${cfg.apiSecret}`).toString('base64'),
+        },
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (!imgRes.ok) {
+        console.warn(`[visualflow] temp asset download attempt ${attempt + 1}: HTTP ${imgRes.status}`)
+        continue
+      }
+      const buf = Buffer.from(await imgRes.arrayBuffer())
+      // The stream endpoint serves application/octet-stream — sniff magic bytes.
+      const contentType =
+        buf[0] === 0x89 && buf[1] === 0x50
+          ? 'image/png'
+          : buf[0] === 0xff && buf[1] === 0xd8
+            ? 'image/jpeg'
+            : buf.subarray(8, 12).toString() === 'WEBP'
+              ? 'image/webp'
+              : null
+      if (!contentType || buf.length < 1000) {
+        console.warn(`[visualflow] temp asset download attempt ${attempt + 1}: not an image (${buf.length} bytes)`)
+        continue
+      }
+      return { contentType, base64: buf.toString('base64') }
+    } catch (err) {
+      console.warn('[visualflow] temp asset download error:', err instanceof Error ? err.message : err)
+    }
+  }
+  return null
+}
+
+/**
  * Persist a generated image permanently via the signed Upload API. The
- * generation endpoint's temporary URLs expire after ~1 hour, which would break
- * version history — so the adapter downloads the bytes and re-uploads them.
+ * generation endpoint's temporary URLs expire within minutes, which would
+ * break version history — so the adapter re-uploads the downloaded bytes.
  */
 async function persistAsset(
   cfg: CloudinaryGenConfig,
-  tempUrl: string,
+  contentType: string,
+  base64: string,
 ): Promise<{ secure_url: string; public_id: string } | null> {
   try {
-    const imgRes = await fetch(tempUrl, { signal: AbortSignal.timeout(60_000) })
-    if (!imgRes.ok) return null
-    const contentType = imgRes.headers.get('content-type') ?? 'image/png'
-    const base64 = Buffer.from(await imgRes.arrayBuffer()).toString('base64')
-
     const timestamp = Math.floor(Date.now() / 1000)
     const folder = 'visualflow'
     const signature = createHash('sha1')
@@ -93,6 +133,27 @@ async function persistAsset(
   }
 }
 
+/**
+ * Per-layer model + resolution policy to minimize credit usage. Base plates
+ * (background/subject/environment) get the photorealistic flux standard model
+ * at full resolution; overlay passes (lighting/atmosphere/effects) are soft
+ * gradients and particles, so the cheaper general-purpose nano-banana model at
+ * reduced resolution is indistinguishable after screen-blending. Standard tier
+ * everywhere — premium models cost multiples more. CLOUDINARY_GEN_MODEL_FAMILY
+ * (/_TIER) env vars apply only to requests without a known layer type.
+ */
+const LAYER_GEN: Record<string, { family: string; tier: string; scale: number }> = {
+  background: { family: 'flux', tier: 'standard', scale: 1 },
+  environment: { family: 'flux', tier: 'standard', scale: 1 },
+  subject: { family: 'flux', tier: 'standard', scale: 1 },
+  foreground: { family: 'flux', tier: 'standard', scale: 0.75 },
+  lighting: { family: 'nano-banana', tier: 'standard', scale: 0.6 },
+  atmosphere: { family: 'nano-banana', tier: 'standard', scale: 0.6 },
+  effects: { family: 'nano-banana', tier: 'standard', scale: 0.75 },
+}
+
+const snap8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
+
 export function createGenerateHandler(cfg: CloudinaryGenConfig) {
   const enabled = !!(cfg.cloudName && cfg.apiKey && cfg.apiSecret)
 
@@ -101,13 +162,22 @@ export function createGenerateHandler(cfg: CloudinaryGenConfig) {
     if (!enabled) return json(res, 501, { error: 'Cloudinary image generation is not configured' })
 
     try {
-      const { prompt, width, height, seed } = JSON.parse(await readBody(req)) as {
+      const { prompt, width, height, seed, layerType } = JSON.parse(await readBody(req)) as {
         prompt?: string
         width?: number
         height?: number
         seed?: number
+        layerType?: string
       }
       if (!prompt || typeof prompt !== 'string') return json(res, 400, { error: 'Missing prompt' })
+
+      const policy = (layerType && LAYER_GEN[layerType]) || {
+        family: cfg.modelFamily,
+        tier: cfg.modelTier,
+        scale: 1,
+      }
+      const genWidth = snap8((width ?? 1024) * policy.scale)
+      const genHeight = snap8((height ?? 1024) * policy.scale)
 
       const upstream = await fetch(
         `https://api.cloudinary.com/v2/generate/${cfg.cloudName}/text_to_image`,
@@ -119,8 +189,8 @@ export function createGenerateHandler(cfg: CloudinaryGenConfig) {
           },
           body: JSON.stringify({
             prompt: prompt.slice(0, 1000),
-            model: { family: cfg.modelFamily, tier: cfg.modelTier },
-            image_size: { width, height },
+            model: { family: policy.family, tier: policy.tier },
+            image_size: { width: genWidth, height: genHeight },
             ...(typeof seed === 'number' ? { seed } : {}),
             // managed_asset fails with MG_00503 on some accounts; generate as
             // temporary, then persist via the signed Upload API below.
@@ -153,13 +223,25 @@ export function createGenerateHandler(cfg: CloudinaryGenConfig) {
         (q: { type?: string }) => q.type === 'image_generation',
       )
       if (quota) console.log(`[visualflow] image_generation quota: ${quota.remaining}/${quota.limit} remaining`)
+      const quotaOut = quota ? { remaining: quota.remaining, limit: quota.limit } : null
 
-      const persisted = await persistAsset(cfg, tempUrl)
-      // Fall back to the temporary URL (valid ~1h) if persistence fails —
-      // better a working demo now than a hard error.
+      // Temp URLs die within minutes and lack CORS headers (they break canvas
+      // compositing) — download immediately, then persist via signed upload.
+      const bytes = await downloadAsset(cfg, tempUrl)
+      if (!bytes) {
+        return json(res, 502, { error: 'Generated image could not be downloaded before expiry' })
+      }
+      const persisted = await persistAsset(cfg, bytes.contentType, bytes.base64)
+      if (persisted) {
+        return json(res, 200, { url: persisted.secure_url, publicId: persisted.public_id, quota: quotaOut })
+      }
+      // Persistence denied (e.g. restricted API key): return the bytes as a
+      // data URL — same-origin-safe for canvas compositing, never expires.
+      console.warn('[visualflow] persistence unavailable — returning data URL (fix API key permissions for stable URLs)')
       return json(res, 200, {
-        url: persisted?.secure_url ?? tempUrl,
-        publicId: persisted?.public_id ?? null,
+        url: `data:${bytes.contentType};base64,${bytes.base64}`,
+        publicId: null,
+        quota: quotaOut,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generation failed'
