@@ -1,6 +1,6 @@
 import type { AgentName, LayerType, ScenePlan } from '../../types'
 import type { AOAdapter, LayerJobSpec, LayerJobResult, OrchestrationBus } from './adapter'
-import { generateImage } from '../generation/pollinations'
+import { generateLayerImage } from '../generation/provider'
 import { planScene } from '../generation/scenePlanner'
 import { uploadAsset, cloudinaryEnabled } from '../cloudinary'
 
@@ -102,10 +102,14 @@ export class LocalAOAdapter implements AOAdapter {
           bus.onEvent({ agent, action: 'Generation started', status: 'generating' })
 
           const prompt = buildLayerPrompt(job.layerType, job.description, job.sceneContext)
-          let assetUrl = await generateImage(prompt, job.ratio, job.seed)
-          let publicId: string | null = null
+          const generated = await generateLayerImage(prompt, job.ratio, job.seed)
+          let assetUrl = generated.assetUrl
+          let publicId = generated.cloudinaryPublicId
 
-          if (cloudinaryEnabled()) {
+          if (generated.provider === 'cloudinary') {
+            // Generated straight into the Cloudinary media library — no upload step.
+            bus.onEvent({ agent: 'Cloudinary', action: `Image generated & stored (${job.layerType})`, status: 'complete' })
+          } else if (cloudinaryEnabled()) {
             bus.onAgentStatus(agent, job.layerType, 'uploading', 'Uploading to Cloudinary...')
             bus.onLayerStatus(job.layerId, 'uploading')
             const asset = await uploadAsset(assetUrl)

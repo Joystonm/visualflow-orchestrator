@@ -1,9 +1,11 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { cloudinaryGeneratePlugin } from './server/cloudinaryGenerate'
 
-// Pollinations blocks browser-origin requests (403 on cross-origin Referer),
-// so the dev server acts as the minimal server-side adapter — no keys involved.
+// Pollinations (the keyless fallback generator) blocks browser-origin requests,
+// so the dev server proxies it. Cloudinary generation runs through the
+// /api/generate middleware, which keeps the API secret server-side.
 const proxy = {
   '/api/image': {
     target: 'https://image.pollinations.ai',
@@ -19,8 +21,13 @@ const proxy = {
   },
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  server: { proxy },
-  preview: { proxy },
+export default defineConfig(({ mode }) => {
+  // Load ALL env vars (not just VITE_*) for server-side use. Only VITE_-prefixed
+  // values are ever exposed to client code.
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
+    plugins: [react(), tailwindcss(), cloudinaryGeneratePlugin(env)],
+    server: { proxy },
+    preview: { proxy },
+  }
 })

@@ -47,13 +47,16 @@ Your subject, your composition, your background — untouched.
 ## Stack
 
 - React + TypeScript + Vite + Tailwind CSS 4
-- Image generation: Pollinations (keyless — no secrets can leak client-side); calls funnel
-  through a single-slot queue with retry/backoff, proxied by the dev server because the
-  API rejects cross-origin browser requests
+- Image generation, primary: **Cloudinary Image Generation add-on** via a minimal
+  server-side adapter (`server/cloudinaryGenerate.ts`, mounted at `/api/generate`).
+  The API key/secret live in non-`VITE_` env vars and never reach the browser.
+  Generated images are stored straight into your Cloudinary media library.
+- Image generation, fallback: Pollinations (keyless) through a single-slot queue with
+  retry/backoff, proxied by the dev server. Any Cloudinary failure (unconfigured, out of
+  credits, transient error) falls back automatically so a demo never stalls.
 - Orchestration: an `AOAdapter` interface with a local in-browser engine
   (`src/lib/ao/`) — swap in a remote AO daemon endpoint without touching UI code
-- Assets: Cloudinary unsigned uploads when configured (see `.env.example`),
-  graceful local fallback otherwise
+- Assets: Cloudinary (direct from generation, or unsigned uploads for fallback assets)
 - Persistence: localStorage (projects, versions, chat); generated assets are
   URL-addressed and re-fetchable
 
@@ -61,16 +64,29 @@ Your subject, your composition, your background — untouched.
 
 ```bash
 npm install
+cp .env.example .env   # fill in Cloudinary values (see below)
 npm run dev
 # open http://localhost:5173
 ```
 
-Optional Cloudinary (client-safe values only — never commit secrets):
+`.env` values (all optional — the app runs with zero config using the fallback generator):
 
-```bash
-cp .env.example .env
-# set VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET (unsigned preset)
-```
+| Variable | Side | Purpose |
+|---|---|---|
+| `CLOUDINARY_CLOUD_NAME` | server | Image Generation add-on |
+| `CLOUDINARY_API_KEY` | server | Image Generation add-on (Basic auth) |
+| `CLOUDINARY_API_SECRET` | server | **Secret — never `VITE_`-prefixed, never committed** |
+| `CLOUDINARY_GEN_MODEL_FAMILY` / `_TIER` | server | Model choice (default `flux` / `standard`) |
+| `VITE_CLOUDINARY_CLOUD_NAME` | client | Unsigned uploads of fallback assets |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned preset name |
+
+Register for the add-on in the Cloudinary Console marketplace first:
+<https://cloudinary.com/documentation/image_generation_addon>
+
+**Deploying to Vercel/Netlify:** set the same env vars in the platform dashboard and port
+`createGenerateHandler` from `server/cloudinaryGenerate.ts` into a serverless function
+(the dev-server middleware only exists locally). The Pollinations proxy entries in
+`vite.config.ts` need equivalent rewrites if you keep the fallback.
 
 ## Demo script (~90 seconds)
 
