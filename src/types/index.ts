@@ -1,11 +1,11 @@
-export type LayerType =
-  | 'background'
-  | 'environment'
-  | 'subject'
-  | 'foreground'
-  | 'lighting'
-  | 'atmosphere'
-  | 'effects'
+/**
+ * How a layer composites — the Scene Director decides which layers a scene
+ * needs (2-4, prompt-specific names) and assigns each a role:
+ * - base: opaque backdrop plate, painted first
+ * - cutout: generated on green screen, chroma-keyed, pasted as a real cutout
+ * - overlay: light/weather pass on black, screen-blended
+ */
+export type LayerRole = 'base' | 'cutout' | 'overlay'
 
 export type LayerStatus =
   | 'queued'
@@ -18,7 +18,7 @@ export type LayerStatus =
 
 export interface Layer {
   id: string
-  type: LayerType
+  role: LayerRole
   name: string
   prompt: string
   /** Delivery URL for the generated asset (Cloudinary if configured, else source URL). */
@@ -37,11 +37,13 @@ export interface Version {
   parentVersionId: string | null
   label: string
   prompt: string
+  /** Short scene summary + style used as generation context (not the raw prompt). */
+  context?: string
   layers: Layer[]
   /** Composited image (data URL or Cloudinary URL). */
   compositeUrl: string | null
   thumbnail: string | null
-  changedLayerTypes: LayerType[]
+  changedLayerNames: string[]
   createdAt: number
 }
 
@@ -63,24 +65,14 @@ export interface ChatMessage {
   timestamp: number
   /** Optional structured orchestration summary rendered inside the message. */
   plan?: {
-    affectedLayers: LayerType[]
-    unchangedLayers: LayerType[]
+    affectedLayers: string[]
+    unchangedLayers: string[]
   }
   relatedVersionId?: string
 }
 
-export type AgentName =
-  | 'AO Orchestrator'
-  | 'Scene Director'
-  | 'Background Agent'
-  | 'Environment Agent'
-  | 'Subject Agent'
-  | 'Foreground Agent'
-  | 'Lighting Agent'
-  | 'Atmosphere Agent'
-  | 'Effects Agent'
-  | 'Cloudinary'
-  | 'Composer'
+/** Fixed orchestration roles plus dynamic per-layer agents ("Man Agent", ...). */
+export type AgentName = string
 
 export type AgentStatus =
   | 'idle'
@@ -103,18 +95,21 @@ export interface AgentEvent {
 /** Live state of an agent shown in the orchestration UI. */
 export interface AgentTask {
   agent: AgentName
-  layerType?: LayerType
+  layerId?: string
   status: AgentStatus
   detail: string
 }
 
 export interface ScenePlanLayer {
-  type: LayerType
+  role: LayerRole
+  name: string
   description: string
 }
 
 export interface ScenePlan {
   scene: string
+  /** Short shared style/mood phrase applied to every layer for coherence. */
+  style?: string
   layers: ScenePlanLayer[]
 }
 

@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentName, AgentStatus, AspectRatio, LayerType, ScenePlan } from '../../types'
+import type { AgentEvent, AgentName, AgentStatus, AspectRatio, LayerRole, ScenePlan } from '../../types'
 
 /**
  * AO adapter boundary. The app talks to agent orchestration only through this
@@ -8,7 +8,8 @@ import type { AgentEvent, AgentName, AgentStatus, AspectRatio, LayerType, SceneP
 
 export interface LayerJobSpec {
   layerId: string
-  layerType: LayerType
+  role: LayerRole
+  name: string
   description: string
   sceneContext: string
   ratio: AspectRatio
@@ -23,7 +24,7 @@ export interface LayerJobResult {
 
 export interface OrchestrationBus {
   /** Live status pushes for a named agent (drives agent cards / status strip). */
-  onAgentStatus(agent: AgentName, layerType: LayerType | null, status: AgentStatus, detail: string): void
+  onAgentStatus(agent: AgentName, layerId: string | null, status: AgentStatus, detail: string): void
   /** Append-only event log (drives the AO ACTIVITY panel). */
   onEvent(event: Omit<AgentEvent, 'id' | 'timestamp'>): void
   /** Layer-level progress (drives the layer inspector + canvas). */

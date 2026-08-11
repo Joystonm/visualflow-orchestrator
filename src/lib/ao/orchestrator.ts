@@ -1,55 +1,43 @@
-import type { AgentName, LayerType, ScenePlan } from '../../types'
+import type { LayerRole, ScenePlan } from '../../types'
 import type { AOAdapter, LayerJobSpec, LayerJobResult, OrchestrationBus } from './adapter'
 import { generateLayerImage } from '../generation/provider'
 import { planScene } from '../generation/scenePlanner'
 import { uploadAsset, cloudinaryEnabled } from '../cloudinary'
 
-export const AGENT_FOR_LAYER: Record<LayerType, AgentName> = {
-  background: 'Background Agent',
-  environment: 'Environment Agent',
-  subject: 'Subject Agent',
-  foreground: 'Foreground Agent',
-  lighting: 'Lighting Agent',
-  atmosphere: 'Atmosphere Agent',
-  effects: 'Effects Agent',
-}
+/** Each layer gets its own named agent ("Man Agent", "Snowfall Agent"...). */
+export const agentForLayer = (layerName: string) => `${layerName} Agent`
 
-export const AGENT_ICONS: Record<AgentName, string> = {
+const FIXED_ICONS: Record<string, string> = {
   'AO Orchestrator': '◉',
   'Scene Director': '🧠',
-  'Background Agent': '🏙',
-  'Environment Agent': '🎨',
-  'Subject Agent': '👤',
-  'Foreground Agent': '🖼',
-  'Lighting Agent': '💡',
-  'Atmosphere Agent': '🌫',
-  'Effects Agent': '✨',
   Cloudinary: '☁',
   Composer: '🧩',
 }
 
+const ROLE_ICONS: Record<LayerRole, string> = {
+  base: '🏞',
+  cutout: '👤',
+  overlay: '✨',
+}
+
+export function agentIcon(agent: string, role?: LayerRole): string {
+  return FIXED_ICONS[agent] ?? (role ? ROLE_ICONS[role] : '🎨')
+}
+
 /**
- * Layer prompts are engineered for real compositing: the background paints the
- * base plate; every other pass is generated on pure black so lighten/screen
- * blending stacks it into the composition non-destructively.
+ * Layer prompts are engineered for real compositing: the base paints the full
+ * backdrop plate; cutouts render on a flat green screen and are chroma-keyed
+ * into the composition; overlays render on pure black and are screen-blended.
  */
-function buildLayerPrompt(type: LayerType, description: string, sceneContext: string): string {
+function buildLayerPrompt(role: LayerRole, description: string, sceneContext: string): string {
   const ctx = sceneContext.slice(0, 160)
-  switch (type) {
-    case 'background':
-      return `${description}, wide cinematic establishing shot, no text, highly detailed, scene: ${ctx}`
-    case 'environment':
-      return `${description}, glowing mid-ground scenery elements isolated on a pure black background, no text, cinematic, part of: ${ctx}`
-    case 'subject':
-      return `${description}, single focal subject, centered, isolated on a solid pure black background, cinematic rim light, no text, part of: ${ctx}`
-    case 'foreground':
-      return `${description}, close foreground elements isolated on a pure black background, shallow depth of field, part of: ${ctx}`
-    case 'lighting':
-      return `abstract cinematic lighting pass: ${description}, soft light leaks, glow and bokeh on a pure black background, no objects, no text`
-    case 'atmosphere':
-      return `subtle volumetric atmosphere pass: ${description}, soft fog and haze gradients on a pure black background, no objects, no text`
-    case 'effects':
-      return `visual effects overlay: ${description}, isolated on a pure black background, no scenery, no text`
+  switch (role) {
+    case 'base':
+      return `${description}, wide cinematic shot, full scene backdrop, no text, highly detailed, style: ${ctx}`
+    case 'cutout':
+      return `${description}, isolated on a flat solid bright green screen background, chroma key style, studio cutout, nothing else in frame, no text, no background scenery, matching: ${ctx}`
+    case 'overlay':
+      return `${description}, translucent overlay effect pass on a pure black background, no objects, no scenery, no text`
   }
 }
 
@@ -58,20 +46,21 @@ const jitter = (min: number, max: number) => new Promise((r) => setTimeout(r, mi
 /**
  * LocalAOAdapter — an in-browser orchestration engine. It coordinates real
  * concurrent agent work (planning LLM call, per-layer image generation,
- * Cloudinary uploads) and streams status/events to the UI bus.
+ * Cloudinary storage) and streams status/events to the UI bus.
  */
 export class LocalAOAdapter implements AOAdapter {
   async planScene(prompt: string, bus: OrchestrationBus): Promise<ScenePlan> {
     bus.onEvent({ agent: 'AO Orchestrator', action: 'Request received', status: 'thinking' })
-    bus.onAgentStatus('Scene Director', null, 'thinking', 'Analyzing composition...')
+    bus.onAgentStatus('Scene Director', null, 'thinking', 'Deciding which layers this scene needs...')
     bus.onEvent({ agent: 'Scene Director', action: 'Analyzing prompt', status: 'thinking' })
 
     const { plan, source } = await planScene(prompt)
 
-    bus.onAgentStatus('Scene Director', null, 'complete', `Scene structure created (${plan.layers.length} layers)`)
+    const names = plan.layers.map((l) => l.name).join(', ')
+    bus.onAgentStatus('Scene Director', null, 'complete', `Planned ${plan.layers.length} layers`)
     bus.onEvent({
       agent: 'Scene Director',
-      action: `Scene plan created — ${plan.layers.length} layers${source === 'fallback' ? ' (heuristic mode)' : ''}`,
+      action: `Scene plan: ${names}${source === 'fallback' ? ' (heuristic mode)' : ''}`,
       status: 'complete',
     })
     return plan
@@ -87,47 +76,47 @@ export class LocalAOAdapter implements AOAdapter {
 
     await Promise.all(
       jobs.map(async (job, i) => {
-        const agent = AGENT_FOR_LAYER[job.layerType]
+        const agent = agentForLayer(job.name)
         try {
-          bus.onAgentStatus(agent, job.layerType, 'queued', 'Queued')
+          bus.onAgentStatus(agent, job.layerId, 'queued', 'Queued')
           bus.onLayerStatus(job.layerId, 'queued')
           await jitter(i * 250, i * 250 + 400) // stagger dispatch so orchestration reads clearly
 
-          bus.onAgentStatus(agent, job.layerType, 'thinking', 'Interpreting layer brief...')
+          bus.onAgentStatus(agent, job.layerId, 'thinking', 'Interpreting layer brief...')
           bus.onEvent({ agent, action: 'Task accepted', status: 'thinking' })
           await jitter(300, 700)
 
-          bus.onAgentStatus(agent, job.layerType, 'generating', 'Generating...')
+          bus.onAgentStatus(agent, job.layerId, 'generating', 'Generating...')
           bus.onLayerStatus(job.layerId, 'generating')
           bus.onEvent({ agent, action: 'Generation started', status: 'generating' })
 
-          const prompt = buildLayerPrompt(job.layerType, job.description, job.sceneContext)
-          const generated = await generateLayerImage(prompt, job.ratio, job.seed, job.layerType)
+          const prompt = buildLayerPrompt(job.role, job.description, job.sceneContext)
+          const generated = await generateLayerImage(prompt, job.ratio, job.seed, job.role)
           let assetUrl = generated.assetUrl
           let publicId = generated.cloudinaryPublicId
 
           if (generated.provider === 'cloudinary') {
             // Generated straight into the Cloudinary media library — no upload step.
             const credits = generated.quota ? ` — ${generated.quota.remaining}/${generated.quota.limit} credits left` : ''
-            bus.onEvent({ agent: 'Cloudinary', action: `Image generated & stored (${job.layerType})${credits}`, status: 'complete' })
+            bus.onEvent({ agent: 'Cloudinary', action: `Image generated & stored (${job.name})${credits}`, status: 'complete' })
           } else if (cloudinaryEnabled()) {
-            bus.onAgentStatus(agent, job.layerType, 'uploading', 'Uploading to Cloudinary...')
+            bus.onAgentStatus(agent, job.layerId, 'uploading', 'Uploading to Cloudinary...')
             bus.onLayerStatus(job.layerId, 'uploading')
             const asset = await uploadAsset(assetUrl)
             if (asset) {
               assetUrl = asset.secureUrl
               publicId = asset.publicId
-              bus.onEvent({ agent: 'Cloudinary', action: `Asset stored (${job.layerType})`, status: 'complete' })
+              bus.onEvent({ agent: 'Cloudinary', action: `Asset stored (${job.name})`, status: 'complete' })
             }
           }
 
-          bus.onAgentStatus(agent, job.layerType, 'complete', 'Layer complete')
+          bus.onAgentStatus(agent, job.layerId, 'complete', 'Layer complete')
           bus.onLayerStatus(job.layerId, 'complete', { assetUrl, cloudinaryPublicId: publicId })
           bus.onEvent({ agent, action: 'Generation completed', status: 'complete' })
           results.set(job.layerId, { layerId: job.layerId, assetUrl, cloudinaryPublicId: publicId })
         } catch (err) {
           const error = err instanceof Error ? err : new Error('Agent failed')
-          bus.onAgentStatus(agent, job.layerType, 'failed', 'Agent failed')
+          bus.onAgentStatus(agent, job.layerId, 'failed', 'Agent failed')
           bus.onLayerStatus(job.layerId, 'failed')
           bus.onEvent({ agent, action: `Failed — ${error.message}`, status: 'failed' })
           results.set(job.layerId, error)

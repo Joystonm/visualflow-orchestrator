@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, versionNumber } from '../store'
 import { compositeLayers } from '../lib/compositor'
-import { LAYER_LABELS } from '../lib/generation/scenePlanner'
 import type { Version } from '../types'
 
 export function CompareView() {
@@ -137,9 +136,9 @@ function CompareMeta({ version }: { version: Version }) {
       </div>
       <div className="mx-auto max-w-[300px] truncate text-[11px] text-zinc-500">“{version.prompt}”</div>
       <div className="mt-1 flex justify-center gap-1">
-        {version.changedLayerTypes.map((t) => (
-          <span key={t} className="rounded bg-accent-600/20 px-1.5 py-px text-[10px] text-accent-400">
-            ✓ {LAYER_LABELS[t]}
+        {version.changedLayerNames.map((name) => (
+          <span key={name} className="rounded bg-accent-600/20 px-1.5 py-px text-[10px] text-accent-400">
+            ✓ {name}
           </span>
         ))}
       </div>

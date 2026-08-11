@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { currentVersion, useStore } from '../store'
 import type { AgentTask, ChatMessage as ChatMessageType } from '../types'
-import { AGENT_ICONS } from '../lib/ao/orchestrator'
-import { LAYER_LABELS } from '../lib/generation/scenePlanner'
+import { agentIcon } from '../lib/ao/orchestrator'
 
 export function ChatPanel() {
   const { state, controller } = useStore()
@@ -54,17 +53,17 @@ function ChatMessage({ message }: { message: ChatMessageType }) {
           <div className="mt-2 space-y-1 border-t border-white/8 pt-2 text-[11px]">
             <div className="text-zinc-500">Affected layers</div>
             <div className="flex flex-wrap gap-1">
-              {message.plan.affectedLayers.map((t) => (
-                <span key={t} className="rounded bg-accent-600/25 px-1.5 py-0.5 font-medium text-accent-400">
-                  {LAYER_LABELS[t]}
+              {message.plan.affectedLayers.map((name) => (
+                <span key={name} className="rounded bg-accent-600/25 px-1.5 py-0.5 font-medium text-accent-400">
+                  {name}
                 </span>
               ))}
             </div>
             <div className="pt-0.5 text-zinc-500">Unchanged</div>
             <div className="flex flex-wrap gap-1">
-              {message.plan.unchangedLayers.map((t) => (
-                <span key={t} className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-500">
-                  {LAYER_LABELS[t]} ✓
+              {message.plan.unchangedLayers.map((name) => (
+                <span key={name} className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-500">
+                  {name} ✓
                 </span>
               ))}
             </div>
@@ -101,7 +100,7 @@ function OrchestrationStatus({ tasks, planning }: { tasks: AgentTask[]; planning
         {tasks.map((t) => (
           <div key={t.agent} className="flex items-center justify-between text-[12px]">
             <span className="flex items-center gap-1.5 text-zinc-300">
-              <span aria-hidden="true" className="w-4 text-center">{AGENT_ICONS[t.agent]}</span>
+              <span aria-hidden="true" className="w-4 text-center">{agentIcon(t.agent)}</span>
               {t.agent}
             </span>
             <span className={`font-medium ${STATUS_STYLE[t.status] ?? 'text-zinc-500'}`}>

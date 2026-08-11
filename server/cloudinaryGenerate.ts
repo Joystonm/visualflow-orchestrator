@@ -134,22 +134,18 @@ async function persistAsset(
 }
 
 /**
- * Per-layer model + resolution policy to minimize credit usage. Base plates
- * (background/subject/environment) get the photorealistic flux standard model
- * at full resolution; overlay passes (lighting/atmosphere/effects) are soft
- * gradients and particles, so the cheaper general-purpose nano-banana model at
- * reduced resolution is indistinguishable after screen-blending. Standard tier
- * everywhere — premium models cost multiples more. CLOUDINARY_GEN_MODEL_FAMILY
- * (/_TIER) env vars apply only to requests without a known layer type.
+ * Per-role model + resolution policy to minimize credit usage. The base plate
+ * and cutouts need the photorealistic flux standard model at full resolution
+ * (cutouts get chroma-keyed, so clean edges matter); overlays are soft
+ * light/weather passes that screen-blend, so the cheaper nano-banana model at
+ * reduced resolution is indistinguishable. Standard tier everywhere — premium
+ * models cost multiples more. CLOUDINARY_GEN_MODEL_FAMILY (/_TIER) env vars
+ * apply only to requests without a known role.
  */
 const LAYER_GEN: Record<string, { family: string; tier: string; scale: number }> = {
-  background: { family: 'flux', tier: 'standard', scale: 1 },
-  environment: { family: 'flux', tier: 'standard', scale: 1 },
-  subject: { family: 'flux', tier: 'standard', scale: 1 },
-  foreground: { family: 'flux', tier: 'standard', scale: 0.75 },
-  lighting: { family: 'nano-banana', tier: 'standard', scale: 0.6 },
-  atmosphere: { family: 'nano-banana', tier: 'standard', scale: 0.6 },
-  effects: { family: 'nano-banana', tier: 'standard', scale: 0.75 },
+  base: { family: 'flux', tier: 'standard', scale: 1 },
+  cutout: { family: 'flux', tier: 'standard', scale: 1 },
+  overlay: { family: 'nano-banana', tier: 'standard', scale: 0.65 },
 }
 
 const snap8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
@@ -162,16 +158,16 @@ export function createGenerateHandler(cfg: CloudinaryGenConfig) {
     if (!enabled) return json(res, 501, { error: 'Cloudinary image generation is not configured' })
 
     try {
-      const { prompt, width, height, seed, layerType } = JSON.parse(await readBody(req)) as {
+      const { prompt, width, height, seed, role } = JSON.parse(await readBody(req)) as {
         prompt?: string
         width?: number
         height?: number
         seed?: number
-        layerType?: string
+        role?: string
       }
       if (!prompt || typeof prompt !== 'string') return json(res, 400, { error: 'Missing prompt' })
 
-      const policy = (layerType && LAYER_GEN[layerType]) || {
+      const policy = (role && LAYER_GEN[role]) || {
         family: cfg.modelFamily,
         tier: cfg.modelTier,
         scale: 1,

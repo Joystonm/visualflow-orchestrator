@@ -1,6 +1,8 @@
 import type { ChatMessage, Project } from '../../types'
 
-const KEY = 'visualflow:v1'
+// v2: dynamic layer roles/names replaced the fixed layer taxonomy — old
+// persisted projects are incompatible and intentionally ignored.
+const KEY = 'visualflow:v2'
 
 interface PersistedState {
   project: Project | null

@@ -78,7 +78,8 @@ export async function generateText(system: string, user: string, timeoutMs = 250
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'openai',
+        // openai-fast is the model that still accepts anonymous requests.
+        model: 'openai-fast',
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },

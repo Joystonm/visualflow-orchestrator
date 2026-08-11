@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
-import { AGENT_ICONS } from '../lib/ao/orchestrator'
+import { agentIcon } from '../lib/ao/orchestrator'
 
 const STATUS_DOT: Record<string, string> = {
   thinking: 'bg-amber-400',
@@ -46,7 +46,7 @@ export function AgentActivity() {
             />
             <div className="min-w-0">
               <div className="font-medium text-zinc-300">
-                <span aria-hidden="true" className="mr-1">{AGENT_ICONS[e.agent]}</span>
+                <span aria-hidden="true" className="mr-1">{agentIcon(e.agent)}</span>
                 {e.agent}
               </div>
               <div className="text-zinc-500">{e.action}</div>

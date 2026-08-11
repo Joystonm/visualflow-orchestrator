@@ -1,6 +1,5 @@
 import { currentVersion, useStore } from '../store'
 import type { Layer } from '../types'
-import { LAYER_ORDER } from '../lib/generation/scenePlanner'
 
 const STATUS_LABEL: Record<Layer['status'], string> = {
   queued: 'Queued',
@@ -18,9 +17,7 @@ export function LayerPanel() {
   if (!version) return null
 
   // Inspector lists top-most layer first (paint order reversed).
-  const layers = [...version.layers].sort(
-    (a, b) => LAYER_ORDER.indexOf(b.type) - LAYER_ORDER.indexOf(a.type),
-  )
+  const layers = [...version.layers].reverse()
   const busy = state.phase === 'planning' || state.phase === 'generating'
 
   return (

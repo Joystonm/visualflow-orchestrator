@@ -1,5 +1,4 @@
 import { useStore, versionNumber } from '../store'
-import { LAYER_LABELS } from '../lib/generation/scenePlanner'
 
 export function VersionTimeline() {
   const { state, controller } = useStore()
@@ -54,13 +53,13 @@ export function VersionTimeline() {
                   </div>
                   <div className="max-w-[130px] truncate text-[11px] text-zinc-500">{v.label}</div>
                   <div className="mt-0.5 flex gap-1">
-                    {v.changedLayerTypes.slice(0, 3).map((t) => (
-                      <span key={t} className="rounded bg-white/6 px-1 py-px text-[9px] text-zinc-400">
-                        {LAYER_LABELS[t]}
+                    {v.changedLayerNames.slice(0, 3).map((name) => (
+                      <span key={name} className="max-w-[70px] truncate rounded bg-white/6 px-1 py-px text-[9px] text-zinc-400">
+                        {name}
                       </span>
                     ))}
-                    {v.changedLayerTypes.length > 3 && (
-                      <span className="text-[9px] text-zinc-600">+{v.changedLayerTypes.length - 3}</span>
+                    {v.changedLayerNames.length > 3 && (
+                      <span className="text-[9px] text-zinc-600">+{v.changedLayerNames.length - 3}</span>
                     )}
                   </div>
                 </div>

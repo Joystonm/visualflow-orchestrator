@@ -31,7 +31,7 @@ async function tryCloudinary(
   prompt: string,
   ratio: AspectRatio,
   seed: number,
-  layerType: string | undefined,
+  role: string | undefined,
   signal?: AbortSignal,
 ): Promise<GeneratedAsset | null> {
   const { width, height } = RATIO_SIZES[ratio]
@@ -41,7 +41,7 @@ async function tryCloudinary(
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, width, height, seed, layerType }),
+        body: JSON.stringify({ prompt, width, height, seed, role }),
         signal,
       })
       if (res.status === 501) {
@@ -68,11 +68,11 @@ export async function generateLayerImage(
   prompt: string,
   ratio: AspectRatio,
   seed: number,
-  layerType?: string,
+  role?: string,
   signal?: AbortSignal,
 ): Promise<GeneratedAsset> {
   if (!FORCE_POLLINATIONS && !cloudinaryUnavailable) {
-    const asset = await tryCloudinary(prompt, ratio, seed, layerType, signal)
+    const asset = await tryCloudinary(prompt, ratio, seed, role, signal)
     if (asset) return asset
   }
   const url = await pollinationsGenerate(prompt, ratio, seed, signal)

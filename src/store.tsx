@@ -9,13 +9,12 @@ import type {
   ChatMessage,
   GenerationPhase,
   Layer,
-  LayerType,
   Project,
   Version,
 } from './types'
 import type { LayerJobSpec, OrchestrationBus } from './lib/ao/adapter'
-import { aoAdapter, AGENT_FOR_LAYER } from './lib/ao/orchestrator'
-import { analyzeRefinement, LAYER_LABELS } from './lib/generation/scenePlanner'
+import { aoAdapter, agentForLayer } from './lib/ao/orchestrator'
+import { analyzeRefinement } from './lib/generation/scenePlanner'
 import { compositeLayers, makeThumbnail } from './lib/compositor'
 import { loadState, saveState } from './lib/storage'
 
@@ -213,8 +212,8 @@ export class AppController {
 
   private bus(versionId: string): OrchestrationBus {
     return {
-      onAgentStatus: (agent: AgentName, layerType: LayerType | null, status: AgentStatus, detail: string) => {
-        this.dispatch({ type: 'UPSERT_AGENT_TASK', task: { agent, layerType: layerType ?? undefined, status, detail } })
+      onAgentStatus: (agent: AgentName, layerId: string | null, status: AgentStatus, detail: string) => {
+        this.dispatch({ type: 'UPSERT_AGENT_TASK', task: { agent, layerId: layerId ?? undefined, status, detail } })
       },
       onEvent: (e) => {
         this.dispatch({ type: 'ADD_EVENT', event: { ...e, id: uid(), timestamp: Date.now() } })
@@ -269,14 +268,14 @@ export class AppController {
         'assistant',
         isFirst
           ? 'Scene ready. Chat to refine it, or select a layer to edit just that layer.'
-          : `${versionNumber(project, versionId)} created — changed: ${version.changedLayerTypes.map((t) => LAYER_LABELS[t]).join(', ')}.`,
+          : `${versionNumber(project, versionId)} created — changed: ${version.changedLayerNames.join(', ')}.`,
         { relatedVersionId: versionId },
       )
     }
     if (failed.length > 0) {
       this.addChat(
         'assistant',
-        `⚠ ${failed.map((l) => `${AGENT_FOR_LAYER[l.type]}`).join(', ')} encountered an error. You can retry the layer from the inspector, or continue without it.`,
+        `⚠ ${failed.map((l) => agentForLayer(l.name)).join(', ')} encountered an error. You can retry the layer from the inspector, or continue without it.`,
       )
     }
   }
@@ -290,11 +289,13 @@ export class AppController {
     const versionId = uid()
     const busThatTargets = this.bus(versionId)
     const plan = await aoAdapter.planScene(prompt, busThatTargets)
+    // Short scene summary + style — used as generation context instead of the raw prompt.
+    const context = [plan.scene, plan.style].filter(Boolean).join(', ').slice(0, 180)
 
     const layers: Layer[] = plan.layers.map((pl) => ({
       id: uid(),
-      type: pl.type,
-      name: LAYER_LABELS[pl.type],
+      role: pl.role,
+      name: pl.name,
       prompt: pl.description,
       assetUrl: null,
       cloudinaryPublicId: null,
@@ -310,10 +311,11 @@ export class AppController {
       parentVersionId: null,
       label: 'Original',
       prompt,
+      context,
       layers,
       compositeUrl: null,
       thumbnail: null,
-      changedLayerTypes: layers.map((l) => l.type),
+      changedLayerNames: layers.map((l) => l.name),
       createdAt: Date.now(),
     }
 
@@ -329,18 +331,19 @@ export class AppController {
     this.dispatch({ type: 'SET_PROJECT', project })
     this.addChat(
       'assistant',
-      `I'll build this as a layered scene: ${plan.layers.map((l) => LAYER_LABELS[l.type]).join(', ')}.`,
-      { plan: { affectedLayers: plan.layers.map((l) => l.type), unchangedLayers: [] }, relatedVersionId: versionId },
+      `I'll build this as ${plan.layers.length} layers: ${plan.layers.map((l) => l.name).join(', ')}.`,
+      { plan: { affectedLayers: plan.layers.map((l) => l.name), unchangedLayers: [] }, relatedVersionId: versionId },
     )
     this.dispatch({ type: 'PATCH', patch: { phase: 'generating' } })
 
-    await this.runJobs(versionId, layers, prompt, ratio)
+    await this.runJobs(versionId, layers, context, ratio)
   }
 
   private async runJobs(versionId: string, layers: Layer[], sceneContext: string, ratio: AspectRatio, announce = true) {
     const jobs: LayerJobSpec[] = layers.map((l) => ({
       layerId: l.id,
-      layerType: l.type,
+      role: l.role,
+      name: l.name,
       description: l.prompt,
       sceneContext,
       ratio,
@@ -359,28 +362,29 @@ export class AppController {
 
     this.addChat('user', message)
 
-    const available = version.layers.map((l) => l.type)
     const selected = state.selectedLayerId
-      ? version.layers.find((l) => l.id === state.selectedLayerId)?.type
+      ? version.layers.find((l) => l.id === state.selectedLayerId)
       : undefined
-    // A selected layer pins the routing — "make it warmer" with Lighting selected hits Lighting only.
+    // A selected layer pins the routing — "make it bigger" with Man selected hits Man only.
     const intent = selected
-      ? { affected: [selected], wholeScene: false }
-      : analyzeRefinement(message, available)
+      ? { affectedIds: [selected.id], wholeScene: false }
+      : analyzeRefinement(message, version.layers)
 
-    const affectedSet = new Set(intent.affected)
-    const unchanged = available.filter((t) => !affectedSet.has(t))
+    const affectedSet = new Set(intent.affectedIds)
+    const affectedNames = version.layers.filter((l) => affectedSet.has(l.id)).map((l) => l.name)
+    const unchangedNames = version.layers.filter((l) => !affectedSet.has(l.id)).map((l) => l.name)
 
     this.dispatch({ type: 'CLEAR_AGENT_TASKS' })
     this.dispatch({ type: 'PATCH', patch: { phase: 'generating' } })
-    this.dispatch({ type: 'ADD_EVENT', event: { id: uid(), agent: 'AO Orchestrator', action: `Request analyzed — ${intent.affected.length} layer(s) affected`, status: 'complete', timestamp: Date.now() } })
+    this.dispatch({ type: 'ADD_EVENT', event: { id: uid(), agent: 'AO Orchestrator', action: `Request analyzed — ${affectedNames.length} layer(s) affected`, status: 'complete', timestamp: Date.now() } })
 
+    // New layer objects get new ids — map old→new so job targeting stays correct.
     const newLayers: Layer[] = version.layers.map((l) =>
-      affectedSet.has(l.type)
+      affectedSet.has(l.id)
         ? {
             ...l,
             id: uid(),
-            prompt: intent.wholeScene ? `${l.prompt}, ${message}` : `${l.prompt}, ${message}`,
+            prompt: `${l.prompt}, ${message}`.slice(0, 220),
             assetUrl: null,
             cloudinaryPublicId: null,
             status: 'queued' as const,
@@ -390,29 +394,31 @@ export class AppController {
         : { ...l },
     )
 
+    const parentContext = version.context ?? version.prompt.slice(0, 120)
     const newVersion: Version = {
       id: uid(),
       parentVersionId: version.id,
       label: message.length > 42 ? `${message.slice(0, 42)}…` : message,
       prompt: message,
+      context: `${parentContext}; ${message}`.slice(0, 180),
       layers: newLayers,
       compositeUrl: null,
       thumbnail: null,
-      changedLayerTypes: intent.affected,
+      changedLayerNames: affectedNames,
       createdAt: Date.now(),
     }
 
     this.dispatch({ type: 'ADD_VERSION', version: newVersion, pushUndo: true })
     this.addChat(
       'assistant',
-      unchanged.length > 0
-        ? `I'll update ${intent.affected.map((t) => LAYER_LABELS[t]).join(' and ')} while preserving ${unchanged.map((t) => LAYER_LABELS[t]).join(', ')}.`
+      unchangedNames.length > 0
+        ? `I'll update ${affectedNames.join(' and ')} while preserving ${unchangedNames.join(', ')}.`
         : `I'll rebuild the whole scene with that direction.`,
-      { plan: { affectedLayers: intent.affected, unchangedLayers: unchanged }, relatedVersionId: newVersion.id },
+      { plan: { affectedLayers: affectedNames, unchangedLayers: unchangedNames }, relatedVersionId: newVersion.id },
     )
 
-    const toGenerate = newLayers.filter((l) => affectedSet.has(l.type))
-    await this.runJobs(newVersion.id, toGenerate, `${version.prompt}. ${message}`, project.aspectRatio)
+    const toGenerate = newLayers.filter((l) => l.status === 'queued')
+    await this.runJobs(newVersion.id, toGenerate, newVersion.context!, project.aspectRatio)
   }
 
   /** Regenerate one layer (new seed, same brief) — creates a new version. */
@@ -441,18 +447,19 @@ export class AppController {
       parentVersionId: version.id,
       label: `Regenerated ${layer.name}`,
       prompt: version.prompt,
+      context: version.context,
       layers: version.layers.map((l) => (l.id === layerId ? regenerated : { ...l })),
       compositeUrl: null,
       thumbnail: null,
-      changedLayerTypes: [layer.type],
+      changedLayerNames: [layer.name],
       createdAt: Date.now(),
     }
     this.dispatch({ type: 'ADD_VERSION', version: newVersion, pushUndo: true })
     this.addChat('assistant', `Regenerating ${layer.name}...`, {
-      plan: { affectedLayers: [layer.type], unchangedLayers: version.layers.filter((l) => l.id !== layerId).map((l) => l.type) },
+      plan: { affectedLayers: [layer.name], unchangedLayers: version.layers.filter((l) => l.id !== layerId).map((l) => l.name) },
       relatedVersionId: newVersion.id,
     })
-    await this.runJobs(newVersion.id, [regenerated], version.prompt, project.aspectRatio)
+    await this.runJobs(newVersion.id, [regenerated], version.context ?? version.prompt.slice(0, 120), project.aspectRatio)
   }
 
   /** Retry a failed layer in place (no new version). */
@@ -466,11 +473,11 @@ export class AppController {
     this.dispatch({ type: 'PATCH', patch: { phase: 'generating' } })
     const seed = newSeed()
     this.dispatch({ type: 'PATCH_LAYER', versionId: version.id, layerId, patch: { status: 'queued', seed } })
-    await this.runJobs(version.id, [{ ...layer, seed }], version.prompt, project.aspectRatio, false)
+    await this.runJobs(version.id, [{ ...layer, seed }], version.context ?? version.prompt.slice(0, 120), project.aspectRatio, false)
     const after = this.getState()
     const v = after.project?.versions.find((x) => x.id === version.id)
     if (v?.layers.find((l) => l.id === layerId)?.status === 'complete') {
-      this.addChat('assistant', `${AGENT_FOR_LAYER[layer.type]} recovered.`)
+      this.addChat('assistant', `${agentForLayer(layer.name)} recovered.`)
     }
   }
 
