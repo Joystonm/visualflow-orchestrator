@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/image/:path*",
+      "destination": "https://image.pollinations.ai/:path*"
+    },
+    {
+      "source": "/api/text/:path*",
+      "destination": "https://text.pollinations.ai/:path*"
+    }
+  ]
+}

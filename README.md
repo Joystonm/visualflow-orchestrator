@@ -83,10 +83,25 @@ npm run dev
 Register for the add-on in the Cloudinary Console marketplace first:
 <https://cloudinary.com/documentation/image_generation_addon>
 
-**Deploying to Vercel/Netlify:** set the same env vars in the platform dashboard and port
-`createGenerateHandler` from `server/cloudinaryGenerate.ts` into a serverless function
-(the dev-server middleware only exists locally). The Pollinations proxy entries in
-`vite.config.ts` need equivalent rewrites if you keep the fallback.
+## Deploy (Vercel)
+
+The repo is deploy-ready for Vercel — no server to manage:
+
+- `api/generate.ts` — serverless function for Cloudinary generation
+  (`maxDuration: 60`, since generation + persist takes ~10-40s)
+- `vercel.json` — rewrites `/api/image/*` and `/api/text/*` to Pollinations
+  for the free fallback generator
+
+Steps:
+
+1. Push the repo to GitHub and import it in Vercel (framework preset: Vite).
+2. In Project → Settings → Environment Variables, add
+   `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
+   (and any `VITE_CLOUDINARY_*` values you use).
+3. Deploy.
+
+Note: Netlify's free tier caps synchronous functions at 10s, which Cloudinary
+generation regularly exceeds — prefer Vercel unless you're on a paid Netlify plan.
 
 ## Demo script (~90 seconds)
 

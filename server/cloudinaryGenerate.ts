@@ -150,100 +150,120 @@ const LAYER_GEN: Record<string, { family: string; tier: string; scale: number }>
 
 const snap8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
 
-export function createGenerateHandler(cfg: CloudinaryGenConfig) {
-  const enabled = !!(cfg.cloudName && cfg.apiKey && cfg.apiSecret)
+export interface GenerateInput {
+  prompt?: string
+  width?: number
+  height?: number
+  seed?: number
+  role?: string
+}
 
+export interface GenerateResult {
+  status: number
+  body: unknown
+}
+
+/**
+ * Transport-agnostic core: used by the Vite dev middleware locally and by the
+ * Vercel serverless function (api/generate.ts) in production.
+ */
+export async function generateCore(cfg: CloudinaryGenConfig, input: GenerateInput): Promise<GenerateResult> {
+  if (!(cfg.cloudName && cfg.apiKey && cfg.apiSecret)) {
+    return { status: 501, body: { error: 'Cloudinary image generation is not configured' } }
+  }
+  const { prompt, width, height, seed, role } = input
+  if (!prompt || typeof prompt !== 'string') return { status: 400, body: { error: 'Missing prompt' } }
+
+  try {
+    const policy = (role && LAYER_GEN[role]) || {
+      family: cfg.modelFamily,
+      tier: cfg.modelTier,
+      scale: 1,
+    }
+    const genWidth = snap8((width ?? 1024) * policy.scale)
+    const genHeight = snap8((height ?? 1024) * policy.scale)
+
+    const upstream = await fetch(
+      `https://api.cloudinary.com/v2/generate/${cfg.cloudName}/text_to_image`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Basic ' + Buffer.from(`${cfg.apiKey}:${cfg.apiSecret}`).toString('base64'),
+        },
+        body: JSON.stringify({
+          prompt: prompt.slice(0, 1000),
+          model: { family: policy.family, tier: policy.tier },
+          image_size: { width: genWidth, height: genHeight },
+          ...(typeof seed === 'number' ? { seed } : {}),
+          // managed_asset fails with MG_00503 on some accounts; generate as
+          // temporary, then persist via the signed Upload API below.
+          target: { target_type: 'temporary' },
+        }),
+        signal: AbortSignal.timeout(90_000),
+      },
+    )
+
+    const text = await upstream.text()
+    if (!upstream.ok) {
+      console.error(`[visualflow] Cloudinary generation failed (${upstream.status}):`, text.slice(0, 400))
+      return {
+        status: upstream.status,
+        body: { error: `Cloudinary generation failed (${upstream.status})`, detail: text.slice(0, 400) },
+      }
+    }
+
+    // Response shape: { data: { assets: [{ storage: { secure_url }, ... }] }, limits: ... }
+    const data = JSON.parse(text) as Record<string, any>
+    const genAsset = data.data?.assets?.[0] ?? data.asset ?? data
+    const tempUrl: string | undefined =
+      genAsset?.storage?.secure_url ?? genAsset?.secure_url ?? genAsset?.url
+    if (!tempUrl) {
+      console.error('[visualflow] Unexpected Cloudinary response shape:', text.slice(0, 400))
+      return { status: 502, body: { error: 'Unexpected Cloudinary response shape' } }
+    }
+
+    const quota = data.limits?.addons_quota?.find?.(
+      (q: { type?: string }) => q.type === 'image_generation',
+    )
+    if (quota) console.log(`[visualflow] image_generation quota: ${quota.remaining}/${quota.limit} remaining`)
+    const quotaOut = quota ? { remaining: quota.remaining, limit: quota.limit } : null
+
+    // Temp URLs die within minutes and lack CORS headers (they break canvas
+    // compositing) — download immediately, then persist via signed upload.
+    const bytes = await downloadAsset(cfg, tempUrl)
+    if (!bytes) {
+      return { status: 502, body: { error: 'Generated image could not be downloaded before expiry' } }
+    }
+    const persisted = await persistAsset(cfg, bytes.contentType, bytes.base64)
+    if (persisted) {
+      return { status: 200, body: { url: persisted.secure_url, publicId: persisted.public_id, quota: quotaOut } }
+    }
+    // Persistence denied (e.g. restricted API key): return the bytes as a
+    // data URL — same-origin-safe for canvas compositing, never expires.
+    console.warn('[visualflow] persistence unavailable — returning data URL (fix API key permissions for stable URLs)')
+    return {
+      status: 200,
+      body: { url: `data:${bytes.contentType};base64,${bytes.base64}`, publicId: null, quota: quotaOut },
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Generation failed'
+    console.error('[visualflow] /api/generate error:', message)
+    return { status: 500, body: { error: message } }
+  }
+}
+
+export function createGenerateHandler(cfg: CloudinaryGenConfig) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' })
-    if (!enabled) return json(res, 501, { error: 'Cloudinary image generation is not configured' })
-
+    let input: GenerateInput
     try {
-      const { prompt, width, height, seed, role } = JSON.parse(await readBody(req)) as {
-        prompt?: string
-        width?: number
-        height?: number
-        seed?: number
-        role?: string
-      }
-      if (!prompt || typeof prompt !== 'string') return json(res, 400, { error: 'Missing prompt' })
-
-      const policy = (role && LAYER_GEN[role]) || {
-        family: cfg.modelFamily,
-        tier: cfg.modelTier,
-        scale: 1,
-      }
-      const genWidth = snap8((width ?? 1024) * policy.scale)
-      const genHeight = snap8((height ?? 1024) * policy.scale)
-
-      const upstream = await fetch(
-        `https://api.cloudinary.com/v2/generate/${cfg.cloudName}/text_to_image`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: 'Basic ' + Buffer.from(`${cfg.apiKey}:${cfg.apiSecret}`).toString('base64'),
-          },
-          body: JSON.stringify({
-            prompt: prompt.slice(0, 1000),
-            model: { family: policy.family, tier: policy.tier },
-            image_size: { width: genWidth, height: genHeight },
-            ...(typeof seed === 'number' ? { seed } : {}),
-            // managed_asset fails with MG_00503 on some accounts; generate as
-            // temporary, then persist via the signed Upload API below.
-            target: { target_type: 'temporary' },
-          }),
-          signal: AbortSignal.timeout(90_000),
-        },
-      )
-
-      const text = await upstream.text()
-      if (!upstream.ok) {
-        console.error(`[visualflow] Cloudinary generation failed (${upstream.status}):`, text.slice(0, 400))
-        return json(res, upstream.status, {
-          error: `Cloudinary generation failed (${upstream.status})`,
-          detail: text.slice(0, 400),
-        })
-      }
-
-      // Response shape: { data: { assets: [{ storage: { secure_url }, ... }] }, limits: ... }
-      const data = JSON.parse(text) as Record<string, any>
-      const genAsset = data.data?.assets?.[0] ?? data.asset ?? data
-      const tempUrl: string | undefined =
-        genAsset?.storage?.secure_url ?? genAsset?.secure_url ?? genAsset?.url
-      if (!tempUrl) {
-        console.error('[visualflow] Unexpected Cloudinary response shape:', text.slice(0, 400))
-        return json(res, 502, { error: 'Unexpected Cloudinary response shape' })
-      }
-
-      const quota = data.limits?.addons_quota?.find?.(
-        (q: { type?: string }) => q.type === 'image_generation',
-      )
-      if (quota) console.log(`[visualflow] image_generation quota: ${quota.remaining}/${quota.limit} remaining`)
-      const quotaOut = quota ? { remaining: quota.remaining, limit: quota.limit } : null
-
-      // Temp URLs die within minutes and lack CORS headers (they break canvas
-      // compositing) — download immediately, then persist via signed upload.
-      const bytes = await downloadAsset(cfg, tempUrl)
-      if (!bytes) {
-        return json(res, 502, { error: 'Generated image could not be downloaded before expiry' })
-      }
-      const persisted = await persistAsset(cfg, bytes.contentType, bytes.base64)
-      if (persisted) {
-        return json(res, 200, { url: persisted.secure_url, publicId: persisted.public_id, quota: quotaOut })
-      }
-      // Persistence denied (e.g. restricted API key): return the bytes as a
-      // data URL — same-origin-safe for canvas compositing, never expires.
-      console.warn('[visualflow] persistence unavailable — returning data URL (fix API key permissions for stable URLs)')
-      return json(res, 200, {
-        url: `data:${bytes.contentType};base64,${bytes.base64}`,
-        publicId: null,
-        quota: quotaOut,
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Generation failed'
-      console.error('[visualflow] /api/generate error:', message)
-      return json(res, 500, { error: message })
+      input = JSON.parse(await readBody(req))
+    } catch {
+      return json(res, 400, { error: 'Invalid JSON body' })
     }
+    const result = await generateCore(cfg, input)
+    return json(res, result.status, result.body)
   }
 }
 
