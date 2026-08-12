@@ -9,7 +9,7 @@ thing that's wrong — the lighting, the background, or the subject.
 
 And usually, you have two choices: **live with it, or generate the whole thing again.**
 
-We didn't like that workflow. So we asked: what if the image didn't have to be a finished
+I didn't like that workflow. So we asked: what if the image didn't have to be a finished
 output? What if you could actually keep working on it?
 
 ## What VisualFlow does
@@ -58,16 +58,6 @@ Now the image is a workspace, not a dead end:
 Toggling, filtering, or regenerating one layer recomposites the canvas instantly on the
 client — no full re-render, no wasted generation credits.
 
-## The AO orchestration story
-
-Orchestration isn't hidden plumbing here — it's the product:
-
-- Live agent cards in the chat show each layer agent (Scene Director, "Man Agent",
-  "Snowfall Agent"...) moving through queued → thinking → generating → complete.
-- The **AO ACTIVITY** panel is a timestamped log of every orchestration event, including
-  Cloudinary storage and remaining generation credits.
-- When you ask for a change, the orchestrator shows its routing decision: which layers
-  are affected, which are preserved.
 
 ## Stack
 
@@ -100,35 +90,3 @@ npm run dev
 | `VITE_CLOUDINARY_CLOUD_NAME` / `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned uploads of fallback assets |
 
 The app runs with zero configuration using the free fallback generator.
-
-## Judging access
-
-The build is gated behind a simple sign-in (verified server-side, so the
-credit-spending generation endpoint can't be called anonymously). Judges receive the
-shared credentials with the submission.
-
-## Deploy (Vercel)
-
-No server to manage — the repo is deploy-ready:
-
-- `api/generate.ts` / `api/login.ts` — serverless functions (generation runs 10-40s,
-  so `maxDuration: 60` is set)
-- `vercel.json` — rewrites `/api/image/*` and `/api/text/*` to the fallback generator
-
-Steps: push to GitHub → import in Vercel (Vite preset) → add the `CLOUDINARY_*` env
-vars in Project Settings → deploy.
-
-Note: Netlify's free tier caps synchronous functions at 10s, which generation regularly
-exceeds — prefer Vercel unless you're on a paid Netlify plan.
-
-## Demo script (~90 seconds)
-
-1. Sign in.
-2. Prompt: *"man on snowy mountain"* — watch the Scene Director plan the layers and the
-   agents build them.
-3. Chat: *"make the man taller"* — only the Man Agent works; the orchestrator shows
-   affected vs. preserved layers.
-4. Select a layer → chat edits pin to it; try a per-layer filter (Noir on the backdrop,
-   subject stays full-color).
-5. Click V1 in the timeline, refine again — the timeline shows a branch (⑂ from V1).
-6. Compare versions with the slider. Export as PNG.
