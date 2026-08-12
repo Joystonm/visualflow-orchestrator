@@ -150,6 +150,45 @@ const LAYER_GEN: Record<string, { family: string; tier: string; scale: number }>
 
 const snap8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
 
+/* ------------------------------------------------------------------ */
+/* Judging-gate auth: single shared credential, verified server-side so */
+/* /api/generate can't be hit directly to burn generation credits.      */
+/* Override via VF_AUTH_EMAIL / VF_AUTH_PASSWORD env vars if needed.    */
+/* ------------------------------------------------------------------ */
+
+const AUTH_EMAIL = (process.env.VF_AUTH_EMAIL || 'visualfloworchestrator@gmail.com').toLowerCase()
+const AUTH_PASSWORD = process.env.VF_AUTH_PASSWORD || 'visualfloworchestrator567'
+
+export function isAuthorized(authHeader: string | string[] | undefined): boolean {
+  const header = Array.isArray(authHeader) ? authHeader[0] : authHeader
+  if (!header?.startsWith('Bearer ')) return false
+  try {
+    const decoded = Buffer.from(header.slice(7), 'base64').toString('utf8')
+    const idx = decoded.indexOf(':')
+    if (idx < 0) return false
+    return decoded.slice(0, idx).trim().toLowerCase() === AUTH_EMAIL && decoded.slice(idx + 1) === AUTH_PASSWORD
+  } catch {
+    return false
+  }
+}
+
+export interface LoginInput {
+  email?: string
+  password?: string
+}
+
+export function loginCore(input: LoginInput): GenerateResult {
+  if (
+    typeof input.email === 'string' &&
+    typeof input.password === 'string' &&
+    input.email.trim().toLowerCase() === AUTH_EMAIL &&
+    input.password === AUTH_PASSWORD
+  ) {
+    return { status: 200, body: { ok: true } }
+  }
+  return { status: 401, body: { error: 'Invalid credentials' } }
+}
+
 export interface GenerateInput {
   prompt?: string
   width?: number
@@ -256,6 +295,7 @@ export async function generateCore(cfg: CloudinaryGenConfig, input: GenerateInpu
 export function createGenerateHandler(cfg: CloudinaryGenConfig) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' })
+    if (!isAuthorized(req.headers.authorization)) return json(res, 401, { error: 'Sign in required' })
     let input: GenerateInput
     try {
       input = JSON.parse(await readBody(req))
@@ -267,15 +307,32 @@ export function createGenerateHandler(cfg: CloudinaryGenConfig) {
   }
 }
 
+export function createLoginHandler() {
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' })
+    let input: LoginInput
+    try {
+      input = JSON.parse(await readBody(req))
+    } catch {
+      return json(res, 400, { error: 'Invalid JSON body' })
+    }
+    const result = loginCore(input)
+    return json(res, result.status, result.body)
+  }
+}
+
 export function cloudinaryGeneratePlugin(env: Record<string, string>): Plugin {
   const handler = createGenerateHandler(configFromEnv(env))
+  const loginHandler = createLoginHandler()
   return {
     name: 'visualflow-cloudinary-generate',
     configureServer(server) {
       server.middlewares.use('/api/generate', handler)
+      server.middlewares.use('/api/login', loginHandler)
     },
     configurePreviewServer(server) {
       server.middlewares.use('/api/generate', handler)
+      server.middlewares.use('/api/login', loginHandler)
     },
   }
 }

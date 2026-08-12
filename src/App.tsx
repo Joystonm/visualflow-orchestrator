@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { useStore } from './store'
+import { isLoggedIn } from './lib/auth'
+import { LoginScreen } from './components/LoginScreen'
 import { EmptyState } from './components/EmptyState'
 import { TopBar } from './components/TopBar'
 import { ChatPanel } from './components/ChatPanel'
@@ -11,6 +14,11 @@ import { AgentActivity } from './components/AgentActivity'
 
 export default function App() {
   const { state } = useStore()
+  const [authed, setAuthed] = useState(isLoggedIn)
+
+  if (!authed) {
+    return <LoginScreen onSuccess={() => setAuthed(true)} />
+  }
 
   if (!state.project) {
     return <EmptyState />

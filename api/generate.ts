@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { configFromEnv, generateCore } from '../server/cloudinaryGenerate'
+import { configFromEnv, generateCore, isAuthorized } from '../server/cloudinaryGenerate'
 import type { GenerateInput } from '../server/cloudinaryGenerate'
 
 /**
@@ -19,6 +19,10 @@ type VercelRes = ServerResponse & {
 export default async function handler(req: VercelReq, res: VercelRes) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
+  if (!isAuthorized(req.headers.authorization)) {
+    res.status(401).json({ error: 'Sign in required' })
     return
   }
   // Vercel parses JSON bodies; tolerate a raw string just in case.

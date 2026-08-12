@@ -1,5 +1,6 @@
 import type { AspectRatio } from '../../types'
 import { RATIO_SIZES, generateImage as pollinationsGenerate } from './pollinations'
+import { authHeaders } from '../auth'
 
 /**
  * Image provider abstraction. Primary: Cloudinary Image Generation add-on via
@@ -40,7 +41,7 @@ async function tryCloudinary(
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ prompt, width, height, seed, role }),
         signal,
       })

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from './../store'
 import { Logo } from './EmptyState'
 import { clearState } from '../lib/storage'
+import { logout } from '../lib/auth'
 
 export function TopBar() {
   const { state, controller } = useStore()
@@ -61,6 +62,13 @@ export function TopBar() {
           className="rounded-md bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Export
+        </button>
+        <button
+          onClick={logout}
+          title="Sign out"
+          className="rounded-md px-2 py-1.5 text-[12px] text-zinc-500 transition-colors hover:bg-ink-700 hover:text-zinc-300"
+        >
+          Sign out
         </button>
       </div>
     </header>
