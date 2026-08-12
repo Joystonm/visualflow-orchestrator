@@ -2,112 +2,133 @@
 
 > AI images shouldn't be the end result. They're the beginning.
 
-VisualFlow is a conversational, multi-agent AI creative workspace. Instead of generating one
-flattened AI image, it treats a scene as a structured stack of meaningful visual layers —
-Background, Environment, Subject, Lighting, Atmosphere, Effects — each owned by a specialized
-agent and coordinated by an AO orchestrator.
+The idea came from something every one of us has faced with AI image generation.
 
-**One prompt. An entire creative team.**
+You generate an image, and maybe 90% of it is exactly what you wanted. But there's one
+thing that's wrong — the lighting, the background, or the subject.
 
-```
-Prompt → AO Orchestrator → Scene Director → Specialized Agents
-       → Layer Generation → Composition → Refinement
-       → Versions → Branches → Compare → Export
-```
+And usually, you have two choices: **live with it, or generate the whole thing again.**
 
-## Why it matters
+We didn't like that workflow. So we asked: what if the image didn't have to be a finished
+output? What if you could actually keep working on it?
 
-Ask a normal generator to "make the neon signs blue" and it re-rolls the whole image.
-VisualFlow routes the request through AO to just the affected agents:
+## What VisualFlow does
+
+Start with a prompt like *"man on snowy mountain"*. Instead of treating the result as one
+flat image, VisualFlow's Scene Director breaks it into layers — each owned by its own AI
+agent, coordinated by an AO orchestrator:
 
 ```
-AO ORCHESTRATOR — request analyzed
-  Affected:   💡 Lighting   ✨ Effects
-  Unchanged:  Background ✓  Environment ✓  Subject ✓
-→ VERSION 4 CREATED (changed: Lighting, Effects)
+"man on snowy mountain"
+        │
+        ▼
+  AO ORCHESTRATOR
+        │
+  Scene Director ── decides the layers this scene needs
+        │
+  ┌─────┴──────────┬─────────────┐
+  ▼                ▼             ▼
+Mountain Backdrop  Man          Snowfall
+(base plate)       (cutout)     (overlay)
+  └─────┬──────────┴─────────────┘
+        ▼
+  Cloudinary  →  Layered Composition
 ```
 
-Your subject, your composition, your background — untouched.
+Now the image is a workspace, not a dead end:
 
-## Features
+- *"Make the man taller"* → only the **Man** layer regenerates. The mountain and snow
+  are untouched.
+- Don't like the snowfall? Toggle it off, regenerate it, or apply a filter to just
+  that layer.
+- Every change becomes a **version**. Jump back to any version and take the scene in a
+  new direction — the timeline shows the branch.
+- Compare any two versions side by side or with a slider, then export the flattened
+  result as PNG/JPG.
 
-- **Visible orchestration** — live agent status cards, an AO activity log, and per-layer
-  progress make the coordination the product, not a hidden detail.
-- **Real layered compositing** — the background paints the base plate; every other layer is
-  generated on pure black and blended in (lighten/screen) on a canvas. Toggling or
-  regenerating one layer recomposites instantly without touching the rest.
-- **Layer-targeted chat** — a deterministic intent router maps requests to layers
-  ("add fog" → Atmosphere; select a layer to pin edits to it).
-- **Versions & branching** — every meaningful generation is a version with
-  `parentVersionId`; jump to any version and refine to branch a new direction.
-- **Compare** — slider and side-by-side modes with changed-layer chips.
-- **Export** — flattened PNG/JPG at full resolution, or copy the image URL.
-- **Failure recovery** — a failed agent offers Retry / Regenerate / Continue without layer.
+## How the layering actually works
+
+- **Base** — the backdrop plate, painted opaque.
+- **Cutouts** — distinct things (a person, an object, a structure) are generated on a
+  flat green screen and chroma-keyed to transparency in the browser, then pasted into
+  the composition like real cut-paper layers.
+- **Overlays** — light and weather passes (snow, rain, glow) generated on black and
+  screen-blended.
+
+Toggling, filtering, or regenerating one layer recomposites the canvas instantly on the
+client — no full re-render, no wasted generation credits.
+
+## The AO orchestration story
+
+Orchestration isn't hidden plumbing here — it's the product:
+
+- Live agent cards in the chat show each layer agent (Scene Director, "Man Agent",
+  "Snowfall Agent"...) moving through queued → thinking → generating → complete.
+- The **AO ACTIVITY** panel is a timestamped log of every orchestration event, including
+  Cloudinary storage and remaining generation credits.
+- When you ask for a change, the orchestrator shows its routing decision: which layers
+  are affected, which are preserved.
 
 ## Stack
 
-- React + TypeScript + Vite + Tailwind CSS 4
-- Image generation, primary: **Cloudinary Image Generation add-on** via a minimal
-  server-side adapter (`server/cloudinaryGenerate.ts`, mounted at `/api/generate`).
-  The API key/secret live in non-`VITE_` env vars and never reach the browser.
-  Generated images are stored straight into your Cloudinary media library.
-- Image generation, fallback: Pollinations (keyless) through a single-slot queue with
-  retry/backoff, proxied by the dev server. Any Cloudinary failure (unconfigured, out of
-  credits, transient error) falls back automatically so a demo never stalls.
-- Orchestration: an `AOAdapter` interface with a local in-browser engine
-  (`src/lib/ao/`) — swap in a remote AO daemon endpoint without touching UI code
-- Assets: Cloudinary (direct from generation, or unsigned uploads for fallback assets)
-- Persistence: localStorage (projects, versions, chat); generated assets are
-  URL-addressed and re-fetchable
+- **React + TypeScript + Vite + Tailwind CSS 4**
+- **Image generation:** Cloudinary Image Generation add-on (flux / nano-banana, chosen
+  per layer role to minimize credits) through a minimal server-side adapter — API
+  secrets never reach the browser. Free keyless fallback (Pollinations) keeps the demo
+  alive if credits run out.
+- **Compositing:** client-side canvas — chroma keying, blend modes, non-destructive
+  Cloudinary filters (real delivery-URL transformations like `e_grayscale`, `e_sepia`).
+- **Orchestration:** an `AOAdapter` interface with a local in-browser engine
+  (`src/lib/ao/`) — swappable for a remote AO daemon without touching UI code.
+- **Persistence:** localStorage for projects, versions and chat; Cloudinary for assets.
 
-## Run it
+## Run it locally
 
 ```bash
 npm install
-cp .env.example .env   # fill in Cloudinary values (see below)
+cp .env.example .env   # add Cloudinary credentials (see below)
 npm run dev
 # open http://localhost:5173
 ```
-
-`.env` values (all optional — the app runs with zero config using the fallback generator):
 
 | Variable | Side | Purpose |
 |---|---|---|
 | `CLOUDINARY_CLOUD_NAME` | server | Image Generation add-on |
 | `CLOUDINARY_API_KEY` | server | Image Generation add-on (Basic auth) |
 | `CLOUDINARY_API_SECRET` | server | **Secret — never `VITE_`-prefixed, never committed** |
-| `CLOUDINARY_GEN_MODEL_FAMILY` / `_TIER` | server | Model choice (default `flux` / `standard`) |
-| `VITE_CLOUDINARY_CLOUD_NAME` | client | Unsigned uploads of fallback assets |
-| `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned preset name |
+| `VITE_GEN_PROVIDER` | client | Set to `pollinations` to iterate for free and save credits |
+| `VITE_CLOUDINARY_CLOUD_NAME` / `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned uploads of fallback assets |
 
-Register for the add-on in the Cloudinary Console marketplace first:
-<https://cloudinary.com/documentation/image_generation_addon>
+The app runs with zero configuration using the free fallback generator.
+
+## Judging access
+
+The build is gated behind a simple sign-in (verified server-side, so the
+credit-spending generation endpoint can't be called anonymously). Judges receive the
+shared credentials with the submission.
 
 ## Deploy (Vercel)
 
-The repo is deploy-ready for Vercel — no server to manage:
+No server to manage — the repo is deploy-ready:
 
-- `api/generate.ts` — serverless function for Cloudinary generation
-  (`maxDuration: 60`, since generation + persist takes ~10-40s)
-- `vercel.json` — rewrites `/api/image/*` and `/api/text/*` to Pollinations
-  for the free fallback generator
+- `api/generate.ts` / `api/login.ts` — serverless functions (generation runs 10-40s,
+  so `maxDuration: 60` is set)
+- `vercel.json` — rewrites `/api/image/*` and `/api/text/*` to the fallback generator
 
-Steps:
+Steps: push to GitHub → import in Vercel (Vite preset) → add the `CLOUDINARY_*` env
+vars in Project Settings → deploy.
 
-1. Push the repo to GitHub and import it in Vercel (framework preset: Vite).
-2. In Project → Settings → Environment Variables, add
-   `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
-   (and any `VITE_CLOUDINARY_*` values you use).
-3. Deploy.
-
-Note: Netlify's free tier caps synchronous functions at 10s, which Cloudinary
-generation regularly exceeds — prefer Vercel unless you're on a paid Netlify plan.
+Note: Netlify's free tier caps synchronous functions at 10s, which generation regularly
+exceeds — prefer Vercel unless you're on a paid Netlify plan.
 
 ## Demo script (~90 seconds)
 
-1. Prompt: *"A futuristic Tokyo street during a rainy neon night, cinematic photography"*
-2. Watch the Scene Director plan and six agents build the layers.
-3. Chat: *"Make the neon signs blue and add heavier rain"* — only the affected agents work.
-4. Select the Lighting layer → chat edits pin to it. Or hit ↻ Regenerate on any layer.
+1. Sign in.
+2. Prompt: *"man on snowy mountain"* — watch the Scene Director plan the layers and the
+   agents build them.
+3. Chat: *"make the man taller"* — only the Man Agent works; the orchestrator shows
+   affected vs. preserved layers.
+4. Select a layer → chat edits pin to it; try a per-layer filter (Noir on the backdrop,
+   subject stays full-color).
 5. Click V1 in the timeline, refine again — the timeline shows a branch (⑂ from V1).
-6. Compare V1 vs V4 with the slider. Export as PNG.
+6. Compare versions with the slider. Export as PNG.
