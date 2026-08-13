@@ -16,17 +16,36 @@ type VercelRes = ServerResponse & {
 }
 
 export default function handler(req: VercelReq, res: VercelRes) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
-    return
-  }
-  let input: LoginInput = {}
   try {
-    input = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {}) as LoginInput
-  } catch {
-    res.status(400).json({ error: 'Invalid JSON body' })
-    return
+    console.log('[login] Request method:', req.method)
+    console.log('[login] Request body type:', typeof req.body)
+    
+    if (req.method !== 'POST') {
+      res.statusCode = 405
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      return
+    }
+    let input: LoginInput = {}
+    try {
+      input = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {}) as LoginInput
+      console.log('[login] Parsed input, has email:', !!input.email, 'has password:', !!input.password)
+    } catch (parseErr) {
+      console.error('[login] Body parse error:', parseErr)
+      res.statusCode = 400
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+      return
+    }
+    const result = loginCore(input)
+    console.log('[login] loginCore result status:', result.status)
+    res.statusCode = result.status
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(result.body))
+  } catch (err) {
+    console.error('[login] handler error:', err)
+    res.statusCode = 500
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ error: 'Internal server error', details: err instanceof Error ? err.message : String(err) }))
   }
-  const result = loginCore(input)
-  res.status(result.status as number).json(result.body)
 }
