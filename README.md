@@ -14,7 +14,7 @@ output? What if you could actually keep working on it?
 
 ## What VisualFlow does
 
-Start with a prompt like *"man on snowy mountain"*. Instead of treating the result as one
+Start with a prompt like _"man on snowy mountain"_. Instead of treating the result as one
 flat image, VisualFlow's Scene Director breaks it into layers — each owned by its own AI
 agent, coordinated by an AO orchestrator:
 
@@ -37,7 +37,7 @@ Mountain Backdrop  Man          Snowfall
 
 Now the image is a workspace, not a dead end:
 
-- *"Make the man taller"* → only the **Man** layer regenerates. The mountain and snow
+- _"Make the man taller"_ → only the **Man** layer regenerates. The mountain and snow
   are untouched.
 - Don't like the snowfall? Toggle it off, regenerate it, or apply a filter to just
   that layer.
@@ -57,7 +57,6 @@ Now the image is a workspace, not a dead end:
 
 Toggling, filtering, or regenerating one layer recomposites the canvas instantly on the
 client — no full re-render, no wasted generation credits.
-
 
 ## Stack
 
@@ -81,12 +80,12 @@ npm run dev
 # open http://localhost:5173
 ```
 
-| Variable | Side | Purpose |
-|---|---|---|
-| `CLOUDINARY_CLOUD_NAME` | server | Image Generation add-on |
-| `CLOUDINARY_API_KEY` | server | Image Generation add-on (Basic auth) |
-| `CLOUDINARY_API_SECRET` | server | **Secret — never `VITE_`-prefixed, never committed** |
-| `VITE_GEN_PROVIDER` | client | Set to `pollinations` to iterate for free and save credits |
-| `VITE_CLOUDINARY_CLOUD_NAME` / `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned uploads of fallback assets |
+| Variable                                                       | Side   | Purpose                                                    |
+| -------------------------------------------------------------- | ------ | ---------------------------------------------------------- |
+| `CLOUDINARY_CLOUD_NAME`                                        | server | Image Generation add-on                                    |
+| `CLOUDINARY_API_KEY`                                           | server | Image Generation add-on (Basic auth)                       |
+| `CLOUDINARY_API_SECRET`                                        | server | **Secret — never `VITE_`-prefixed, never committed**       |
+| `VITE_GEN_PROVIDER`                                            | client | Set to `pollinations` to iterate for free and save credits |
+| `VITE_CLOUDINARY_CLOUD_NAME` / `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned uploads of fallback assets                        |
 
 The app runs with zero configuration using the free fallback generator.

@@ -2,6 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { loginCore } from '../server/cloudinaryGenerate'
 import type { LoginInput } from '../server/cloudinaryGenerate'
 
+/**
+ * Vercel serverless function — judge sign-in gate.
+ * Validates credentials server-side so /api/generate can't be called
+ * without a valid session token.
+ */
+export const config = { maxDuration: 10 }
+
 type VercelReq = IncomingMessage & { body?: unknown; method?: string }
 type VercelRes = ServerResponse & {
   status: (code: number) => VercelRes
@@ -21,5 +28,5 @@ export default function handler(req: VercelReq, res: VercelRes) {
     return
   }
   const result = loginCore(input)
-  res.status(result.status).json(result.body)
+  res.status(result.status as number).json(result.body)
 }
