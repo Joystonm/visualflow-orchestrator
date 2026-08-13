@@ -1,6 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { loginCore } from '../server/cloudinaryGenerate'
-import type { LoginInput } from '../server/cloudinaryGenerate'
 
 /**
  * Vercel serverless function — judge sign-in gate.
@@ -13,6 +11,27 @@ type VercelReq = IncomingMessage & { body?: unknown; method?: string }
 type VercelRes = ServerResponse & {
   status: (code: number) => VercelRes
   json: (body: unknown) => void
+}
+
+interface LoginInput {
+  email?: string
+  password?: string
+}
+
+// Credentials with defaults - override via VF_AUTH_EMAIL / VF_AUTH_PASSWORD env vars
+const AUTH_EMAIL = (process.env.VF_AUTH_EMAIL || 'visualfloworchestrator@gmail.com').toLowerCase()
+const AUTH_PASSWORD = process.env.VF_AUTH_PASSWORD || 'visualfloworchestrator567'
+
+function validateCredentials(input: LoginInput): { status: number; body: unknown } {
+  if (
+    typeof input.email === 'string' &&
+    typeof input.password === 'string' &&
+    input.email.trim().toLowerCase() === AUTH_EMAIL &&
+    input.password === AUTH_PASSWORD
+  ) {
+    return { status: 200, body: { ok: true } }
+  }
+  return { status: 401, body: { error: 'Invalid credentials' } }
 }
 
 export default function handler(req: VercelReq, res: VercelRes) {
@@ -37,8 +56,8 @@ export default function handler(req: VercelReq, res: VercelRes) {
       res.end(JSON.stringify({ error: 'Invalid JSON body' }))
       return
     }
-    const result = loginCore(input)
-    console.log('[login] loginCore result status:', result.status)
+    const result = validateCredentials(input)
+    console.log('[login] validation result status:', result.status)
     res.statusCode = result.status
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify(result.body))
