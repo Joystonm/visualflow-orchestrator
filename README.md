@@ -22,8 +22,6 @@ agent, coordinated by an AO orchestrator:
 "man on snowy mountain"
         │
         ▼
-  AO ORCHESTRATOR
-        │
   Scene Director ── decides the layers this scene needs
         │
   ┌─────┴──────────┬─────────────┐
