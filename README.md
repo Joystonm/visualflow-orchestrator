@@ -1,89 +1,468 @@
 # VisualFlow
 
-> AI images shouldn't be the end result. They're the beginning.
+> A conversational, multi-agent workspace for creating, refining and exploring AI-generated visuals.
 
-The idea came from something every one of us has faced with AI image generation.
+AI image generation is good at producing a final image, but the workflow becomes difficult when you want to keep working on that image.
 
-You generate an image, and maybe 90% of it is exactly what you wanted. But there's one
-thing that's wrong — the lighting, the background, or the subject.
+VisualFlow takes a different approach.
 
-And usually, you have two choices: **live with it, or generate the whole thing again.**
+Instead of treating an AI generation as a single flattened result, VisualFlow turns the prompt into a **dynamic visual composition**. The AI determines which elements of the scene should become separate layers, generates them independently, and composes them into the final result.
 
-I didn't like that workflow. So we asked: what if the image didn't have to be a finished
-output? What if you could actually keep working on it?
+This allows a generated image to remain editable throughout the creative process.
 
-## What VisualFlow does
+## The Problem
 
-Start with a prompt like _"man on snowy mountain"_. Instead of treating the result as one
-flat image, VisualFlow's Scene Director breaks it into layers — each owned by its own AI
-agent, coordinated by an AO orchestrator:
+Most AI image workflows follow a simple pattern:
 
+```text
+Prompt → Generate → Image
+````
+
+If something is wrong with the result, the usual solution is to modify the prompt and generate again.
+
+That creates several problems:
+
+* A small change can require regenerating the entire scene.
+* Previous generations are easy to lose.
+* Exploring different creative directions becomes expensive.
+* There is no structured representation of what makes up the image.
+* Iteration becomes a sequence of disconnected generations.
+
+VisualFlow is designed around a different workflow:
+
+```text
+Prompt
+  ↓
+Understand the Scene
+  ↓
+Plan the Visual Layers
+  ↓
+Generate
+  ↓
+Compose
+  ↓
+Refine
+  ↓
+Version
+  ↓
+Branch
+  ↓
+Compare
 ```
-"man on snowy mountain"
-        │
-        ▼
-  Scene Director ── decides the layers this scene needs
-        │
-  ┌─────┴──────────┬─────────────┐
-  ▼                ▼             ▼
-Mountain Backdrop  Man          Snowfall
-(base plate)       (cutout)     (overlay)
-  └─────┬──────────┴─────────────┘
-        ▼
-  Cloudinary  →  Layered Composition
+
+
+## How VisualFlow Works
+
+VisualFlow does **not** use a fixed set of predefined layers.
+
+The AI analyzes each prompt and determines what visual elements are needed for that particular scene.
+
+For example, a prompt such as:
+
+```text
+A climber standing on a snowy mountain during a storm
 ```
 
-Now the image is a workspace, not a dead end:
+could result in a completely different layer structure than:
 
-- _"Make the man taller"_ → only the **Man** layer regenerates. The mountain and snow
-  are untouched.
-- Don't like the snowfall? Toggle it off, regenerate it, or apply a filter to just
-  that layer.
-- Every change becomes a **version**. Jump back to any version and take the scene in a
-  new direction — the timeline shows the branch.
-- Compare any two versions side by side or with a slider, then export the flattened
-  result as PNG/JPG.
+```text
+A futuristic car driving through a neon city at night
+```
 
-## How the layering actually works
+The layer structure is created dynamically from the scene rather than forcing every generation into predefined categories.
 
-- **Base** — the backdrop plate, painted opaque.
-- **Cutouts** — distinct things (a person, an object, a structure) are generated on a
-  flat green screen and chroma-keyed to transparency in the browser, then pasted into
-  the composition like real cut-paper layers.
-- **Overlays** — light and weather passes (snow, rain, glow) generated on black and
-  screen-blended.
+```text
+                    User Prompt
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │ Scene Analysis │
+                 └───────┬───────┘
+                         │
+                         ▼
+                 Dynamic Layer Plan
+                         │
+             ┌───────────┼───────────┐
+             ▼           ▼           ▼
+          Layer A     Layer B     Layer C
+             │           │           │
+             └───────────┼───────────┘
+                         ▼
+                    Composition
+                         │
+                         ▼
+                  VisualFlow Canvas
+```
 
-Toggling, filtering, or regenerating one layer recomposites the canvas instantly on the
-client — no full re-render, no wasted generation credits.
+The important part is that **the AI decides what should become a layer**.
 
-## Stack
 
-- **React + TypeScript + Vite + Tailwind CSS 4**
-- **Image generation:** Cloudinary Image Generation add-on (flux / nano-banana, chosen
-  per layer role to minimize credits) through a minimal server-side adapter — API
-  secrets never reach the browser. Free keyless fallback (Pollinations) keeps the demo
-  alive if credits run out.
-- **Compositing:** client-side canvas — chroma keying, blend modes, non-destructive
-  Cloudinary filters (real delivery-URL transformations like `e_grayscale`, `e_sepia`).
-- **Orchestration:** an `AOAdapter` interface with a local in-browser engine
-  (`src/lib/ao/`) — swappable for a remote AO daemon without touching UI code.
-- **Persistence:** localStorage for projects, versions and chat; Cloudinary for assets.
+## Conversational Refinement
 
-## Run it locally
+Once a composition exists, the user can continue working with it through natural language.
+
+For example:
+
+```text
+Make the lighting warmer and add heavier rain.
+```
+
+VisualFlow interprets the request and determines which parts of the scene need to change.
+
+Instead of rebuilding the entire composition, the affected layers can be regenerated and the scene recomposed.
+
+```text
+User Request
+     │
+     ▼
+Request Analysis
+     │
+     ▼
+Affected Layers
+     │
+     ▼
+Targeted Generation
+     │
+     ▼
+Recomposition
+```
+
+This makes refinement much closer to editing a creative project than repeatedly starting a new generation.
+
+---
+
+## Multi-Agent Architecture
+
+VisualFlow separates the reasoning, orchestration, generation, and visual processing responsibilities.
+
+```text
+                         User
+                          │
+                          ▼
+                  ┌──────────────┐
+                  │  VisualFlow  │
+                  │      UI      │
+                  └──────┬───────┘
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │      AO      │
+                  │ Orchestrator │
+                  └──────┬───────┘
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+           Analysis    Layer      Refinement
+            Tasks      Tasks         Tasks
+              │          │          │
+              └──────────┼──────────┘
+                         ▼
+                ┌─────────────────┐
+                │   GMI Cloud     │
+                │ Analysis /      │
+                │ Inference       │
+                └────────┬────────┘
+                         │
+                         ▼
+                ┌─────────────────┐
+                │   Cloudinary    │
+                │ Generation +    │
+                │ Transformations │
+                └────────┬────────┘
+                         │
+                         ▼
+                  Layer Composition
+                         │
+                         ▼
+                    Final Canvas
+```
+
+### AO — Orchestration
+
+AO orchestrates the workflow and the different tasks involved in creating and refining a scene.
+
+Rather than treating the entire process as one request, VisualFlow can break the work into smaller operations and coordinate them through the orchestration layer.
+
+### GMI Cloud — Analysis & Inference
+
+GMI Cloud provides the reasoning and inference layer used for understanding prompts, interpreting refinement requests, and determining how the visual workflow should proceed.
+
+### Cloudinary — Visual Generation & Processing
+
+Cloudinary handles the visual side of the pipeline, including:
+
+* Image generation
+* Image transformations
+* Filters
+* Aspect-ratio handling
+* Layer processing
+* Composition
+
+
+## Dynamic Layer System
+
+The layer system is intentionally flexible.
+
+There is no requirement that every scene contain:
+
+```text
+Background
+Subject
+Lighting
+Effects
+```
+
+Instead, the AI determines the appropriate structure for the prompt.
+
+A simple scene may require only a few layers, while a more complex scene can result in many independent visual elements.
+
+This allows VisualFlow to adapt the composition model to the content being generated.
+
+## Layer Processing
+
+VisualFlow currently works with different processing strategies depending on the role of a generated element.
+
+### Base Layers
+
+Large scene elements that provide the underlying visual foundation.
+
+### Cutout Layers
+
+Independent objects or subjects that need to be separated from their generated background.
+
+These can be processed into transparent assets before being placed into the composition.
+
+### Overlay Layers
+
+Visual elements that sit above other layers, such as atmospheric or environmental effects.
+
+These can be composited using appropriate blend operations.
+
+The important distinction is that these are **processing strategies**, not fixed scene categories. The actual layers are determined dynamically by the AI.
+
+
+## Client-Side Composition
+
+VisualFlow performs composition on the client rather than generating a completely new flattened image after every change.
+
+```text
+Layer 1 ─────┐
+Layer 2 ─────┤
+Layer 3 ─────┼──→ Canvas
+Layer 4 ─────┤
+Layer N ─────┘
+```
+
+This enables operations such as:
+
+* Toggle visibility
+* Reorder layers
+* Apply filters
+* Transform individual elements
+* Change composition
+* Regenerate selected elements
+* Recompose without regenerating unaffected layers
+
+The result is a more interactive editing workflow with less unnecessary generation.
+
+## Versioning
+
+AI-assisted creative work is inherently iterative.
+
+VisualFlow treats iterations as part of the workflow rather than overwriting the previous result.
+
+Each meaningful generation can become a new version.
+
+```text
+                     Version 1
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+          Version 2             Version 3
+              │                     │
+              ▼                     ▼
+          Version 4             Version 5
+```
+
+Users can:
+
+* Return to an earlier version
+* Create a branch
+* Explore a different direction
+* Compare iterations
+* Continue refining from any previous state
+
+This makes experimentation non-destructive.
+
+## Branching
+
+Branching allows a user to explore multiple creative directions from the same starting point.
+
+For example:
+
+```text
+                 Initial Concept
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+        Cinematic Branch   Cyberpunk Branch
+              │                 │
+              ▼                 ▼
+          Iteration A       Iteration B
+```
+
+A branch does not destroy the original creative direction.
+
+It creates another path that can be explored independently.
+
+## Comparison
+
+VisualFlow provides a way to compare different generations and branches before deciding which direction to continue.
+
+This makes experimentation easier because users don't have to rely on memory or overwrite earlier results.
+
+---
+
+## Core Architecture
+
+```text
+┌─────────────────────────────────────────────────────┐
+│                    VisualFlow UI                    │
+│                                                     │
+│  Chat │ Canvas │ Layers │ Versions │ Compare       │
+└────────────────────────┬────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────┐
+│                     AO Layer                        │
+│                                                     │
+│             Workflow Orchestration                  │
+└────────────────────────┬────────────────────────────┘
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+┌──────────────────────┐  ┌─────────────────────────┐
+│      GMI Cloud       │  │       Cloudinary        │
+│                      │  │                         │
+│ • Scene analysis     │  │ • Image generation     │
+│ • Text inference     │  │ • Transformations      │
+│ • Refinement logic   │  │ • Filters               │
+│                      │  │ • Aspect ratios         │
+└──────────────────────┘  │ • Visual processing     │
+                          └────────────┬────────────┘
+                                       │
+                                       ▼
+                              Layered Composition
+                                       │
+                                       ▼
+                                Versioned Scene
+```
+
+
+## Technology Stack
+
+| Area                    | Technology                  |
+| ----------------------- | --------------------------- |
+| Frontend                | React                       |
+| Language                | TypeScript                  |
+| Build Tool              | Vite                        |
+| Styling                 | Tailwind CSS                |
+| Orchestration           | AO                          |
+| AI Analysis / Inference | GMI Cloud                   |
+| Image Generation        | Cloudinary Image Generation |
+| Image Processing        | Cloudinary Transformations  |
+| Composition             | Client-side Canvas          |
+| Persistence             | localStorage                |
+
+
+## Getting Started
+
+### Requirements
+
+* Node.js 18+
+* Cloudinary account
+* Cloudinary Image Generation access
+* GMI Cloud API credentials
+
+### Installation
 
 ```bash
+git clone https://github.com/Joystonm/visualflow-orchestrator.git
+cd visualflow-orchestrator
 npm install
-cp .env.example .env   # add Cloudinary credentials (see below)
-npm run dev
-# open http://localhost:5173
 ```
 
-| Variable                                                       | Side   | Purpose                                                    |
-| -------------------------------------------------------------- | ------ | ---------------------------------------------------------- |
-| `CLOUDINARY_CLOUD_NAME`                                        | server | Image Generation add-on                                    |
-| `CLOUDINARY_API_KEY`                                           | server | Image Generation add-on (Basic auth)                       |
-| `CLOUDINARY_API_SECRET`                                        | server | **Secret — never `VITE_`-prefixed, never committed**       |
-| `VITE_GEN_PROVIDER`                                            | client | Set to `pollinations` to iterate for free and save credits |
-| `VITE_CLOUDINARY_CLOUD_NAME` / `VITE_CLOUDINARY_UPLOAD_PRESET` | client | Unsigned uploads of fallback assets                        |
+Create your environment file:
 
-The app runs with zero configuration using the free fallback generator.
+```bash
+cp .env.example .env
+```
+
+Configure the required credentials.
+
+```env
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+
+GMI_API_KEY=
+```
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Then open:
+
+```text
+http://localhost:5173
+```
+
+## Environment Variables
+
+| Variable                | Environment | Purpose                       |
+| ----------------------- | ----------- | ----------------------------- |
+| `CLOUDINARY_CLOUD_NAME` | Server      | Cloudinary account            |
+| `CLOUDINARY_API_KEY`    | Server      | Cloudinary API authentication |
+| `CLOUDINARY_API_SECRET` | Server      | Cloudinary secret             |
+| `GMI_API_KEY`           | Server      | GMI Cloud authentication      |
+
+> Never expose API secrets through `VITE_` variables or commit them to the repository.
+
+## Creative Workflow
+
+A typical VisualFlow session looks like:
+
+```text
+1. Enter a prompt
+        ↓
+2. AI analyzes the scene
+        ↓
+3. Dynamic layers are planned
+        ↓
+4. Layers are generated
+        ↓
+5. Composition is created
+        ↓
+6. User refines through conversation
+        ↓
+7. Relevant layers are regenerated
+        ↓
+8. New version is saved
+        ↓
+9. User branches / compares
+        ↓
+10. Final composition is exported
+```
+
+## Design Principle
+
+VisualFlow is built around a simple idea:
+
+> **AI generation should not end when the image is generated.**
+
+The generated scene should remain something the creator can continue working with.
+
+
