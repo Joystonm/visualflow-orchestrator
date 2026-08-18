@@ -379,12 +379,17 @@ export class AppController {
     this.dispatch({ type: 'ADD_EVENT', event: { id: uid(), agent: 'AO Orchestrator', action: `Request analyzed — ${affectedNames.length} layer(s) affected`, status: 'complete', timestamp: Date.now() } })
 
     // New layer objects get new ids — map old→new so job targeting stays correct.
+    // IMPORTANT: keep the layer's original description (l.prompt) intact. The
+    // refinement direction is carried by newVersion.context, which buildLayerPrompt
+    // uses as the scene-coherence anchor. Appending the raw user message to the
+    // layer description caused the model to treat the refinement instruction as
+    // part of the subject being generated, producing contaminated full-scene images.
     const newLayers: Layer[] = version.layers.map((l) =>
       affectedSet.has(l.id)
         ? {
             ...l,
             id: uid(),
-            prompt: `${l.prompt}, ${message}`.slice(0, 220),
+            prompt: l.prompt,
             assetUrl: null,
             cloudinaryPublicId: null,
             status: 'queued' as const,

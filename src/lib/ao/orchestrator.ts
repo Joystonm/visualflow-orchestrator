@@ -25,19 +25,78 @@ export function agentIcon(agent: string, role?: LayerRole): string {
 }
 
 /**
- * Layer prompts are engineered for real compositing: the base paints the full
- * backdrop plate; cutouts render on a flat green screen and are chroma-keyed
- * into the composition; overlays render on pure black and are screen-blended.
+ * Build a layer-specific generation prompt. Each layer must produce ONLY the
+ * visual element it owns — never a complete reproduction of the full scene.
+ *
+ * The structured prompt has four explicit sections:
+ *   FULL SCENE       — coherence anchor so the model knows what the final
+ *                       composition looks like, preventing style drift.
+ *   LAYER            — the dynamic name assigned by the Scene Director.
+ *   LAYER PURPOSE    — what this specific element represents.
+ *   GENERATION INSTRUCTION — precise, role-specific directive that tells the
+ *                       model what to generate and, critically, what to omit.
+ *
+ * Role contracts:
+ *   base    → the environmental/backdrop plate only. No subjects, no
+ *             independently generated foreground objects. Wide establishing
+ *             shot of the setting. The subject layers are handled separately.
+ *
+ *   cutout  → a single isolated subject on a FLAT solid pure-green (#00ff00)
+ *             background so the compositor can chroma-key it cleanly. The
+ *             background must be a uniform colour — no gradients, no scenery,
+ *             no shadows cast on the ground. Subject visual characteristics
+ *             (clothing, pose, etc.) must match the scene context.
+ *
+ *   overlay → the atmospheric effect only (snow, rain, fog, sparks, glow…),
+ *             rendered on a PURE BLACK background. No objects, no subjects,
+ *             no setting. Must be suitable for screen blending over the base.
+ *
+ * sceneContext provides style/mood coherence only — it is never used as the
+ * subject of generation.
  */
-function buildLayerPrompt(role: LayerRole, description: string, sceneContext: string): string {
-  const ctx = sceneContext.slice(0, 160)
+function buildLayerPrompt(
+  role: LayerRole,
+  layerName: string,
+  description: string,
+  sceneContext: string,
+): string {
+  const scene = sceneContext.slice(0, 180)
+
   switch (role) {
     case 'base':
-      return `${description}, wide cinematic shot, full scene backdrop, no text, highly detailed, style: ${ctx}`
+      return [
+        `FULL SCENE: ${scene}`,
+        `LAYER: ${layerName}`,
+        `LAYER PURPOSE: ${description}`,
+        `GENERATION INSTRUCTION: Generate ONLY the environmental backdrop for this scene — ${description}.`,
+        `Do NOT add any subjects, characters, people, animals, or foreground objects that belong to separate layers.`,
+        `Do NOT recreate the complete scene. Render only the setting: terrain, sky, architecture, or background environment.`,
+        `Wide establishing shot, highly detailed background plate, no text.`,
+      ].join('\n')
+
     case 'cutout':
-      return `${description}, isolated on a flat solid bright green screen background, chroma key style, studio cutout, nothing else in frame, no text, no background scenery, matching: ${ctx}`
+      return [
+        `FULL SCENE: ${scene}`,
+        `LAYER: ${layerName}`,
+        `LAYER PURPOSE: ${description}`,
+        `GENERATION INSTRUCTION: Generate ONLY the isolated subject described — ${description}.`,
+        `Place the subject on a FLAT SOLID PURE GREEN (#00ff00) background. The background must be a uniform single colour with no gradients, no shadows, no reflections, and no scenery.`,
+        `Do NOT add any background environment, other objects, or elements that belong to separate layers.`,
+        `Do NOT recreate the complete scene. Render only this subject with the visual characteristics that fit the scene context.`,
+        `Studio cutout style, nothing else in frame, no text.`,
+      ].join('\n')
+
     case 'overlay':
-      return `${description}, translucent overlay effect pass on a pure black background, no objects, no scenery, no text`
+      return [
+        `FULL SCENE: ${scene}`,
+        `LAYER: ${layerName}`,
+        `LAYER PURPOSE: ${description}`,
+        `GENERATION INSTRUCTION: Generate ONLY the atmospheric effect — ${description}.`,
+        `Render on a PURE BLACK background (#000000). The effect must be translucent-looking so it composites naturally when screen-blended over a scene.`,
+        `Do NOT add any objects, subjects, buildings, terrain, or scenery.`,
+        `Do NOT recreate the complete scene. Render only the atmospheric/weather/light effect itself.`,
+        `No text.`,
+      ].join('\n')
   }
 }
 
@@ -90,7 +149,7 @@ export class LocalAOAdapter implements AOAdapter {
           bus.onLayerStatus(job.layerId, 'generating')
           bus.onEvent({ agent, action: 'Generation started', status: 'generating' })
 
-          const prompt = buildLayerPrompt(job.role, job.description, job.sceneContext)
+          const prompt = buildLayerPrompt(job.role, job.name, job.description, job.sceneContext)
           const generated = await generateLayerImage(prompt, job.ratio, job.seed, job.role)
           let assetUrl = generated.assetUrl
           let publicId = generated.cloudinaryPublicId

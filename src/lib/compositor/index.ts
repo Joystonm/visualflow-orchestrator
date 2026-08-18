@@ -163,11 +163,16 @@ export async function compositeLayers(
       ctx.filter = cssFilter
       if (blend.chroma) {
         const keyed = chromaKey(img, sourceUrl)
-        // If the model ignored the green screen (nearly everything opaque),
-        // fall back to lighten blending so it doesn't blot out the backdrop.
         if (keyed.opaqueRatio > 0.95) {
-          ctx.globalCompositeOperation = 'lighten'
-          ctx.globalAlpha = 0.85 * layer.opacity
+          // The model ignored the green-screen instruction: nearly every pixel
+          // is opaque, meaning chroma-keying removed nothing useful. Switching
+          // to lighten-blend would composite two full scenes on top of each
+          // other — exactly the bug we're fixing. Instead, apply source-over at
+          // reduced opacity so the content is still visible while keeping the
+          // backdrop intact. This is a graceful degradation, not a correct
+          // cutout, but it is far better than a blended double scene.
+          ctx.globalCompositeOperation = 'source-over'
+          ctx.globalAlpha = 0.7 * layer.opacity
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         } else {
           ctx.drawImage(keyed.canvas, 0, 0, canvas.width, canvas.height)
